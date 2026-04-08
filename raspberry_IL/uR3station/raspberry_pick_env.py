@@ -10,7 +10,7 @@ from airo_robots.grippers.hardware.robotiq_2f85_urcap import Robotiq2F85
 from airo_robots.manipulators.hardware.ur_rtde import URrtde
 from anyskin import AnySkinBase
 
-from raspberry_IL.base import BaseEnv
+from robot_imitation_glue.base import BaseEnv
 from raspberry_IL.uR3station.raspberry_trial_utils import (
     OnlineFeatureConfig,
     OnlineFeatureProcessor,
@@ -88,7 +88,7 @@ class RaspberryPickEnv(BaseEnv):
 
         self.episode_done = False
         self.detach_detected = False
-        self.pull_started = False
+
         self.contact_started = False
         self.pull_start_time = None
         self.step_count = 0
@@ -99,8 +99,28 @@ class RaspberryPickEnv(BaseEnv):
         self.loadcell_rows = []
         self.anyskin_rows = []
 
+        self.pull_active = False
+        self.pull_alpha = 0.0
+        self.pull_alpha_step = 0.03   # tune this
+        self.pull_started = False
+
         self._start_sensor_threads()
         time.sleep(2.0)
+
+    def _interp_q(self, q0, q1, alpha):
+        return (1.0 - alpha) * q0 + alpha * q1
+    
+    def _advance_pull_step(self):
+        if not self.pull_active:
+            return
+
+        self.pull_alpha = min(1.0, self.pull_alpha + self.pull_alpha_step)
+        q_cmd = self._interp_q(self.GRASP_Q, self.PULL_Q, self.pull_alpha)
+
+        self.robot.move_to_joint_configuration(
+            q_cmd,
+            joint_speed=self.arm_joint_speed,
+        ).wait()
 
     def _start_sensor_threads(self):
         self._stop_threads = False
@@ -228,6 +248,11 @@ class RaspberryPickEnv(BaseEnv):
         self.raspberry_rows = []
         self.loadcell_rows = []
         self.anyskin_rows = []
+        self.pull_active = False
+        self.pull_started = False
+        self.pull_alpha = 0.0
+        self.detach_detected = False
+
         self.processor.reset()
 
         self.move_gripper(self.initial_open_width)
@@ -271,12 +296,7 @@ class RaspberryPickEnv(BaseEnv):
         if not self.contact_started and max_rasp > max(self.feature_cfg.zero_deadband, 1.0):
             self.contact_started = True
             self.log_event("contact_detected", {"max_raspberry_pressure": max_rasp})
-            if self.auto_start_pull_on_contact and not self.pull_started:
-                self._move_arm_q(self.PULL_Q)
-                self.pull_started = True
-                self.pull_start_time = time.perf_counter()
-                self.log_event("pull_start")
-                self.log_event("pull_reached")
+
 
         if processed["detach_detected"] and not self.detach_detected and self.pull_started:
             self.detach_detected = True
@@ -301,12 +321,20 @@ class RaspberryPickEnv(BaseEnv):
         return obs
 
     def act(self, robot_pose_se3, gripper_pose, timestamp):
-        if isinstance(gripper_pose, np.ndarray):
-            gripper_pose = float(gripper_pose.reshape(-1)[0])
-        gripper_width = float(np.clip(gripper_pose, self.gripper.gripper_specs.min_width, self.gripper.gripper_specs.max_width))
-        self.gripper._set_target_width(gripper_width)
-        self.step_count += 1
-        return
+        
+        target_width = float(np.asarray(gripper_pose).reshape(-1)[0])
+        self.move_gripper(target_width)
+
+        if self.contact_started and not self.pull_active:
+            self.pull_active = True
+            self.pull_started = True
+            self.log_event("pull_start")
+
+        if self.pull_active and not self.detach_detected:
+            self._advance_pull_step()
+
+        if self.detach_detected:
+            self.pull_active = False
 
     def save_trial(self):
         if self.current_trial_idx <= 0:

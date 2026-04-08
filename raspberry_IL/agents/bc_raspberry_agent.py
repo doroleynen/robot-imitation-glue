@@ -26,7 +26,7 @@ class BCRaspberryAgent(BaseAgent):
     ACTION_SPEC = "GRIPPER_DELTA"
 
     def __init__(self, checkpoint_path: str):
-        checkpoint = torch.load(Path(checkpoint_path), map_location="cpu")
+        checkpoint = torch.load(Path(checkpoint_path), map_location="cpu", weights_only=False)
         self.model = MLP(checkpoint["input_dim"], checkpoint.get("hidden_dim", 128))
         self.model.load_state_dict(checkpoint["model_state_dict"])
         self.model.eval()

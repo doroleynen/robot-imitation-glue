@@ -174,9 +174,10 @@ class OnlineFeatureConfig:
     num_anyskin_mags: int = 5
     raspberry_window: int = 10
     raspberry_base_samples: int = 100
+    raspberry_trend_horizon: int = 30  # steps over which to compute pressure trend
     zero_deadband: float = 8.0
     anyskin_smooth_window: int = 10
-    anyskin_slip_smooth_window: int = 10
+    anyskin_slip_threshold: float = 30.0  # raw step-to-step magnitude diff; noise floor max ~28, genuine slip up to ~174
     detach_drop_threshold: float = 0.01
     detach_min_force: float = 0.05
 
@@ -224,10 +225,9 @@ class OnlineFeatureProcessor:
     def reset(self):
         self.raspberry_baselines = [BaselineEstimator(self.cfg.raspberry_base_samples) for _ in range(self.cfg.num_raspberry_sensors)]
         self.raspberry_avgs = [RunningAverage(self.cfg.raspberry_window, 0.0) for _ in range(self.cfg.num_raspberry_sensors)]
-        self.prev_processed_raspberry = np.zeros(self.cfg.num_raspberry_sensors, dtype=np.float32)
+        self.raspberry_trend_buf: Deque[np.ndarray] = deque(maxlen=self.cfg.raspberry_trend_horizon)
         self.anyskin_mag_avgs = [RunningAverage(self.cfg.anyskin_smooth_window, 0.0) for _ in range(self.cfg.num_anyskin_mags)]
-        self.anyskin_slip_avgs = [RunningAverage(self.cfg.anyskin_slip_smooth_window, 0.0) for _ in range(self.cfg.num_anyskin_mags)]
-        self.prev_anyskin_mag = np.zeros(self.cfg.num_anyskin_mags, dtype=np.float32)
+        self.prev_anyskin_mag_raw = np.zeros(self.cfg.num_anyskin_mags, dtype=np.float32)
         self.prev_load_force = 0.0
         self.running_peak_force = None
         self.detach_armed = False
@@ -242,12 +242,15 @@ class OnlineFeatureProcessor:
                 delta = 0.0
             processed.append(delta)
         processed_arr = np.asarray(processed, dtype=np.float32)
-        diff = processed_arr - self.prev_processed_raspberry
-        self.prev_processed_raspberry = processed_arr
+        # Trend: diff against value from trend_horizon steps ago (or oldest available)
+        oldest = self.raspberry_trend_buf[0] if self.raspberry_trend_buf else np.zeros_like(processed_arr)
+        diff = processed_arr - oldest
+        self.raspberry_trend_buf.append(processed_arr.copy())
         return processed_arr, diff.astype(np.float32)
 
     def _process_anyskin(self, raw_anyskin: List[float]):
         mags = []
+        raw_mags = []
         slips = []
         if len(raw_anyskin) < 3 * self.cfg.num_anyskin_mags:
             raw_anyskin = list(raw_anyskin) + [0.0] * (3 * self.cfg.num_anyskin_mags - len(raw_anyskin))
@@ -255,13 +258,14 @@ class OnlineFeatureProcessor:
             x, y, z = raw_anyskin[3 * i : 3 * i + 3]
             mag_raw = math.sqrt(x * x + y * y + z * z)
             mag = self.anyskin_mag_avgs[i].update(mag_raw)
-            slip_raw = abs(mag - float(self.prev_anyskin_mag[i]))
-            slip = self.anyskin_slip_avgs[i].update(slip_raw)
+            slip_raw = abs(mag_raw - float(self.prev_anyskin_mag_raw[i]))
+            slip = slip_raw if slip_raw >= self.cfg.anyskin_slip_threshold else 0.0
             mags.append(mag)
+            raw_mags.append(mag_raw)
             slips.append(slip)
         mags_arr = np.asarray(mags, dtype=np.float32)
         slips_arr = np.asarray(slips, dtype=np.float32)
-        self.prev_anyskin_mag = mags_arr
+        self.prev_anyskin_mag_raw = np.asarray(raw_mags, dtype=np.float32)
         return mags_arr, slips_arr
 
     def _process_load(self, raw_force: float):

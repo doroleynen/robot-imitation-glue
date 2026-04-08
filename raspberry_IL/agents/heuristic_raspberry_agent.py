@@ -23,7 +23,7 @@ class HeuristicRaspberryAgent(BaseAgent):
         max_slip = float(np.max(slip)) if len(slip) else 0.0
         max_rasp = float(np.max(rasp)) if len(rasp) else 0.0
 
-        action += -self.slip_gain * max_slip
+        action += self.slip_gain * max_slip
         if max_rasp > self.pressure_limit:
             action = max(action, 0.001)
 
