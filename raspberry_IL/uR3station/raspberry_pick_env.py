@@ -10,8 +10,8 @@ from airo_robots.grippers.hardware.robotiq_2f85_urcap import Robotiq2F85
 from airo_robots.manipulators.hardware.ur_rtde import URrtde
 from anyskin import AnySkinBase
 
-from robot_imitation_glue.base import BaseEnv
-from robot_imitation_glue.uR3station.raspberry_trial_utils import (
+from raspberry_IL.base import BaseEnv
+from raspberry_IL.uR3station.raspberry_trial_utils import (
     OnlineFeatureConfig,
     OnlineFeatureProcessor,
     make_anyskin_fieldnames,

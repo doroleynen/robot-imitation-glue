@@ -1,8 +1,8 @@
 import argparse
 
-from robot_imitation_glue.agents.bc_raspberry_agent import BCRaspberryAgent
-from robot_imitation_glue.uR3station.collect_raspberry_data import delta_to_abs_gripper
-from robot_imitation_glue.uR3station.raspberry_pick_env import RaspberryPickEnv
+from raspberry_IL.agents.bc_raspberry_agent import BCRaspberryAgent
+from raspberry_IL.uR3station.collect_raspberry_data import delta_to_abs_gripper
+from raspberry_IL.uR3station.raspberry_pick_env import RaspberryPickEnv
 
 
 def main():

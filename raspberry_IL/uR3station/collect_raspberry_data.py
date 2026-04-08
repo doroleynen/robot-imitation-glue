@@ -4,10 +4,10 @@ from pathlib import Path
 
 import numpy as np
 
-from robot_imitation_glue.agents.bc_raspberry_agent import BCRaspberryAgent
-from robot_imitation_glue.agents.heuristic_raspberry_agent import HeuristicRaspberryAgent
-from robot_imitation_glue.dataset_recorder import LeRobotDatasetRecorder
-from robot_imitation_glue.uR3station.raspberry_pick_env import RaspberryPickEnv
+from raspberry_IL.agents.bc_raspberry_agent import BCRaspberryAgent
+from raspberry_IL.agents.heuristic_raspberry_agent import HeuristicRaspberryAgent
+from raspberry_IL.dataset_recorder import LeRobotDatasetRecorder
+from raspberry_IL.uR3station.raspberry_pick_env import RaspberryPickEnv
 
 
 def delta_to_abs_gripper(current_width: np.ndarray, action: np.ndarray, min_width: float, max_width: float):

@@ -6,7 +6,7 @@ import re
 
 import matplotlib.pyplot as plt
 
-from robot_imitation_glue.uR3station.raspberry_trial_utils import detect_detach, process_raspberry_signals
+from raspberry_IL.uR3station.raspberry_trial_utils import detect_detach, process_raspberry_signals
 
 NUM_SENSORS = 8
 WINDOW = 10
