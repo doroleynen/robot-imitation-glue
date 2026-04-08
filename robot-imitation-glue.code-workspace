@@ -1,0 +1,13 @@
+{
+	"folders": [
+		{
+			"name": "robot-imitation-glue",
+			"path": "."
+		},
+		{
+			"name": "raspberry_IL",
+			"path": "../../../Downloads/raspberry_glue_overlay_processed_only/raspberry_IL"
+		}
+	],
+	"settings": {}
+}
