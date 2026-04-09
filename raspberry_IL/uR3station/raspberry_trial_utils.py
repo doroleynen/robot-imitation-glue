@@ -65,7 +65,7 @@ def moving_average(signal, window):
     return out
 
 
-def compute_baselines(sensors, base_samples=100):
+def compute_baselines(sensors, base_samples=10):
     baselines = []
     for ch in sensors:
         n = min(base_samples, len(ch))

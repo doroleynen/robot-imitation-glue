@@ -8,6 +8,7 @@ import numpy as np
 import serial
 from airo_robots.grippers.hardware.robotiq_2f85_urcap import Robotiq2F85
 from airo_robots.manipulators.hardware.ur_rtde import URrtde
+from airo_robots.manipulators.position_manipulator import ManipulatorSpecs
 from anyskin import AnySkinBase
 
 from robot_imitation_glue.base import BaseEnv
@@ -19,6 +20,12 @@ from raspberry_IL.uR3station.raspberry_trial_utils import (
     parse_raspberry_line,
 )
 
+ur3_specs = ManipulatorSpecs(
+    max_joint_speeds=[3.14, 3.14, 3.14, 3.14, 3.14, 3.14],
+    max_linear_speed=1.0,
+)
+
+
 
 class RaspberryPickEnv(BaseEnv):
     ACTION_SPEC = "GRIPPER_DELTA"
@@ -27,12 +34,12 @@ class RaspberryPickEnv(BaseEnv):
     def __init__(
         self,
         robot_ip: str = "10.42.0.163",
-        raspberry_port: str = "/dev/ttyACM3",
-        loadcell_port: str = "/dev/ttyACM1",
-        anyskin_port: str = "/dev/ttyACM2",
+        raspberry_port: str = "/dev/ttyACM2",
+        loadcell_port: str = "/dev/ttyACM3",
+        anyskin_port: str = "/dev/ttyACM1",
         baud_rate: int = 115200,
         anyskin_num_mags: int = 5,
-        anyskin_temp_filtered: bool = True,
+        anyskin_temp_filtered: bool     = True,
         anyskin_burst_mode: bool = True,
         anyskin_baudrate: int = 115200,
         arm_joint_speed: float = 0.15,
@@ -65,12 +72,13 @@ class RaspberryPickEnv(BaseEnv):
         self.trial_log_root = Path(trial_log_root)
         self.trial_log_root.mkdir(parents=True, exist_ok=True)
 
-        self.SAFE_Q = np.array([-1.95987827, -3.30249323, 0.78052837, -2.17082896, -1.58573944, -1.50839597], dtype=float)
-        self.APPROACH_Q = np.array([-1.11505634, -3.45552363, 0.50535185, -1.8370768, -1.58581144, -1.5083831], dtype=float)
-        self.GRASP_Q = np.array([-1.07907039, -3.29095234, 0.50338775, -1.98487296, -1.54438192, -1.97415287], dtype=float)
-        self.PULL_Q = np.array([-1.1152199, -3.03422322, -0.42365354, -1.29017635, -1.58889419, -1.97281915], dtype=float)
+        self.SAFE_Q = np.array([-1.95987827, -3.30249323, 0.78052837, -2.17082896, -1.58573944, -1.50839597 + np.pi/2], dtype=float)
+        self.APPROACH_Q = np.array([-1.11505634, -3.45552363, 0.50535185, -1.8370768, -1.58581144, -1.5083831 + np.pi/2], dtype=float)
+        self.GRASP_Q = np.array([-1.07907039, -3.29095234, 0.50338775, -1.98487296, -1.54438192, -1.97415287 + np.pi/2], dtype=float)
+        self.PULL_Q = np.array([-1.1152199, -3.03422322, -0.42365354, -1.29017635, -1.58889419, -1.97281915 + np.pi/2], dtype=float)
 
-        self.robot = URrtde(self.robot_ip)
+
+        self.robot = URrtde(self.robot_ip, manipulator_specs=ur3_specs)
         self.gripper = Robotiq2F85(self.robot_ip)
 
         self._raspberry_serial = None
@@ -293,7 +301,8 @@ class RaspberryPickEnv(BaseEnv):
 
         max_rasp = float(np.max(processed["raspberry_state"])) if processed["raspberry_state"].size else 0.0
         max_slip = float(np.max(processed["anyskin_slip"])) if processed["anyskin_slip"].size else 0.0
-        if not self.contact_started and max_rasp > max(self.feature_cfg.zero_deadband, 1.0):
+        # if not self.contact_started and max_rasp > max(self.feature_cfg.zero_deadband, 1.0):
+        if not self.contact_started and max_rasp > 0.0:
             self.contact_started = True
             self.log_event("contact_detected", {"max_raspberry_pressure": max_rasp})
 
@@ -320,15 +329,36 @@ class RaspberryPickEnv(BaseEnv):
         self.last_obs = obs
         return obs
 
-    def act(self, robot_pose_se3, gripper_pose, timestamp):
+    # def act(self, robot_pose_se3, gripper_pose, timestamp):
         
-        target_width = float(np.asarray(gripper_pose).reshape(-1)[0])
-        self.move_gripper(target_width)
+    #     target_width = float(np.asarray(gripper_pose).reshape(-1)[0])
+    #     self.move_gripper(target_width)
 
+    #     if self.contact_started and not self.pull_active:
+    #         self.pull_active = True
+    #         self.pull_started = True
+    #         self.log_event("pull_start")
+
+    #     if self.pull_active and not self.detach_detected:
+    #         self._advance_pull_step()
+
+    #     if self.detach_detected:
+    #         self.pull_active = False
+
+    def act(self, robot_pose_se3, gripper_pose, timestamp):
+        # Start pulling as soon as contact is available, before executing
+        # another closing command.
         if self.contact_started and not self.pull_active:
             self.pull_active = True
             self.pull_started = True
             self.log_event("pull_start")
+
+            # Hold current width on the contact transition step
+            target_width = float(self.get_gripper_opening()[0])
+        else:
+            target_width = float(np.asarray(gripper_pose).reshape(-1)[0])
+
+        self.move_gripper(target_width)
 
         if self.pull_active and not self.detach_detected:
             self._advance_pull_step()

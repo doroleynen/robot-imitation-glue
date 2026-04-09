@@ -1,0 +1,7 @@
+t_pc,event,trial_idx,load_force,max_raspberry_pressure,max_slip
+20006.081904358,safe_pose_reached,2,,,
+20011.91495941,approach_reached,2,,,
+20015.244676493,grasp_pose_reached,2,,,
+20021.076293677,contact_detected,2,,12.632128715515137,
+20021.076570266,pull_start,2,,,
+20048.527973055,detach_detected,2,52.5892,,0.0
