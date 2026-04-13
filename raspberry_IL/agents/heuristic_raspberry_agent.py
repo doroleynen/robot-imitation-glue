@@ -77,7 +77,7 @@ class HeuristicRaspberryAgent(BaseAgent):
         slip_threshold: float = 10,
         slip_close_step: float = -0.0002, #before 0.0008
         max_close_per_step: float = -0.0030,
-        grasp_pressure_threshold: float = 400.0
+        grasp_pressure_threshold: float = 1000.0
     ):
         self.close_delta_pre_contact = close_delta_pre_contact
         self.slip_threshold = slip_threshold
@@ -102,6 +102,7 @@ class HeuristicRaspberryAgent(BaseAgent):
 
         # Before contact: gently close
         if not contact_started:
+
             action = self.close_delta_pre_contact
         
         elif not pull_started:

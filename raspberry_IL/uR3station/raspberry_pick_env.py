@@ -266,6 +266,8 @@ class RaspberryPickEnv(BaseEnv):
         self.processor.reset()
 
         if not skip_motion:
+            self._move_arm_q(self.SAFE_Q)  # return to safe pose before asking for reset (no logging yet)
+            input(f"[Trial {self.current_trial_idx}] Reset setup, then press Enter to start...")
             self.move_gripper(self.initial_open_width)
             self._move_arm_q(self.SAFE_Q)
             self.log_event("safe_pose_reached")
@@ -369,6 +371,7 @@ class RaspberryPickEnv(BaseEnv):
 
         if self.detach_detected:
             self.pull_active = False
+            self.move_gripper(self.initial_open_width)
 
     def save_trial(self):
         if self.current_trial_idx <= 0:
