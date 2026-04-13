@@ -16,6 +16,7 @@ DETACH_DROP_THRESHOLD = 0.01
 DETACH_MIN_FORCE = 0.05
 ANYSKIN_SMOOTH_WINDOW = 10
 ANYSKIN_SLIP_SMOOTH_WINDOW = 10
+ANYSKIN_SLIP_LOOKBACK = 500  # samples (~1s at 500Hz) for shear-change slip proxy
 
 
 def moving_average(signal, window):
@@ -109,19 +110,17 @@ def process_anyskin_rows(rows, fieldnames):
     mag_signals = {}
     slip_signals = {}
     for i in mags:
-        raw_mag = []
+        raw_shear = []
         for row in rows:
             x = row[f"m{i}_x"]
             y = row[f"m{i}_y"]
-            z = row[f"m{i}_z"]
-            raw_mag.append(math.sqrt(x*x + y*y + z*z))
-        mag = moving_average(raw_mag, ANYSKIN_SMOOTH_WINDOW)
-        slip = [0.0]
-        for j in range(1, len(mag)):
-            dt = t[j] - t[j-1]
-            slip.append(0.0 if dt <= 0 else abs(mag[j] - mag[j-1]) / dt)
+            raw_shear.append(math.sqrt(x*x + y*y))
+        shear = moving_average(raw_shear, ANYSKIN_SMOOTH_WINDOW)
+        slip = [0.0] * min(ANYSKIN_SLIP_LOOKBACK, len(shear))
+        for j in range(ANYSKIN_SLIP_LOOKBACK, len(shear)):
+            slip.append(abs(shear[j] - shear[j - ANYSKIN_SLIP_LOOKBACK]))
         slip = moving_average(slip, ANYSKIN_SLIP_SMOOTH_WINDOW)
-        mag_signals[i] = mag
+        mag_signals[i] = shear
         slip_signals[i] = slip
     return t, mags, mag_signals, slip_signals
 
@@ -140,7 +139,20 @@ def plot_one_trial(trial_idx, files, output_dir):
     load_t, load_force = read_loadcell_csv(files["load"])
     event_rows = read_event_csv(files["event"])
     _, processed_sensors = process_raspberry_signals(raw_sensors, WINDOW, BASE_SAMPLES, ZERO_DEADBAND)
-    detach_t, _ = detect_detach(load_t, load_force, DETACH_DROP_THRESHOLD, DETACH_MIN_FORCE)
+    detach_event = next((r for r in event_rows if r["event"] == "detach_detected"), None)
+    if detach_event is not None:
+        detach_t = detach_event["t_pc"]
+    else:
+        detach_t, _ = detect_detach(load_t, load_force, DETACH_DROP_THRESHOLD, DETACH_MIN_FORCE)
+
+    # Clip data at detach, keeping the detach marker itself
+    if detach_t is not None:
+        cut = next((i for i, t in enumerate(rasp_t) if t > detach_t), len(rasp_t))
+        rasp_t = rasp_t[:cut]
+        processed_sensors = [s[:cut] for s in processed_sensors]
+        cut_load = next((i for i, t in enumerate(load_t) if t > detach_t), len(load_t))
+        load_t = load_t[:cut_load]
+        load_force = load_force[:cut_load]
 
     fig, ax1 = plt.subplots(figsize=(14, 8))
     for i in range(NUM_SENSORS):
@@ -161,6 +173,8 @@ def plot_one_trial(trial_idx, files, output_dir):
 
     if "anyskin" in files:
         anyskin_fieldnames, anyskin_rows = read_anyskin_csv(files["anyskin"])
+        if detach_t is not None:
+            anyskin_rows = [r for r in anyskin_rows if r["t_pc"] <= detach_t]
         t, mags, mag_signals, slip_signals = process_anyskin_rows(anyskin_rows, anyskin_fieldnames)
         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 10), sharex=True)
         for i in mags:

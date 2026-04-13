@@ -100,6 +100,20 @@ def detect_anyskin_mags(fieldnames):
     return mags
 
 
+# def compute_slip_proxy(t, signal):
+#     if len(signal) == 0:
+#         return []
+#     slip = [0.0]
+#     for i in range(1, len(signal)):
+#         dt = t[i] - t[i - 1]
+#         if dt <= 0:
+#             slip.append(0.0)
+#         else:
+#             slip.append(abs(signal[i] - signal[i - 1]) / dt)
+#     return slip
+
+
+
 def compute_slip_proxy(t, signal):
     if len(signal) == 0:
         return []
@@ -112,8 +126,66 @@ def compute_slip_proxy(t, signal):
             slip.append(abs(signal[i] - signal[i - 1]) / dt)
     return slip
 
+# def compute_vector_slip_proxy(t, xs, ys, zs):
+#     if len(xs) == 0:
+#         return []
 
-def process_anyskin_rows(rows, fieldnames, smooth_window=5, slip_smooth_window=5):
+#     slip = [0.0]
+#     for i in range(1, len(xs)):
+#         dt = t[i] - t[i - 1]
+#         if dt <= 0:
+#             slip.append(0.0)
+#             continue
+
+#         dx = xs[i] - xs[i - 1]
+#         dy = ys[i] - ys[i - 1]
+#         dz = zs[i] - zs[i - 1]
+#         slip.append(math.sqrt(dx*dx + dy*dy + dz*dz) / dt)
+#     return slip
+
+
+# def process_anyskin_rows(rows, fieldnames, smooth_window=5, slip_smooth_window=5):
+#     if not rows:
+#         return None
+
+#     mags = detect_anyskin_mags(fieldnames)
+#     t = [row["t_pc"] for row in rows]
+#     sample_idx = [row["sample_idx"] for row in rows]
+
+#     mag_signals = {}
+#     slip_signals = {}
+
+#     for i in mags:
+#         raw_mag = []
+#         for row in rows:
+#             x = row[f"m{i}_x"]
+#             y = row[f"m{i}_y"]
+#             z = row[f"m{i}_z"]
+#             raw_mag.append(math.sqrt(x * x + y * y + z * z))
+
+#         mag = moving_average(raw_mag, smooth_window)
+#         slip = compute_slip_proxy(t, mag)
+#         slip = moving_average(slip, slip_smooth_window)
+
+#         mag_signals[i] = mag
+#         slip_signals[i] = slip
+
+#     return {
+#         "t": t,
+#         "sample_idx": sample_idx,
+#         "mags": mags,
+#         "mag_signals": mag_signals,
+#         "slip_signals": slip_signals,
+#     }
+
+def process_anyskin_rows(
+    rows,
+    fieldnames,
+    smooth_window=1,
+    ratio_epsilon=1e-6,
+    shear_delta_threshold=8.0,
+    slip_ratio_threshold=2.0,
+):
     if not rows:
         return None
 
@@ -123,30 +195,109 @@ def process_anyskin_rows(rows, fieldnames, smooth_window=5, slip_smooth_window=5
 
     mag_signals = {}
     slip_signals = {}
+    shear_signals = {}
+    norm_signals = {}
+    ratio_signals = {}
 
     for i in mags:
-        raw_mag = []
+        mag_vals = []
+        shear_vals = []
+        norm_vals = []
+        slip_vals = []
+        ratio_vals = []
+
+        prev_shear = None
+        prev_norm = None
+
         for row in rows:
-            x = row[f"m{i}_x"]
-            y = row[f"m{i}_y"]
-            z = row[f"m{i}_z"]
-            raw_mag.append(math.sqrt(x * x + y * y + z * z))
+            x = float(row[f"m{i}_x"])
+            y = float(row[f"m{i}_y"])
+            z = float(row[f"m{i}_z"])
 
-        mag = moving_average(raw_mag, smooth_window)
-        slip = compute_slip_proxy(t, mag)
-        slip = moving_average(slip, slip_smooth_window)
+            mag = math.sqrt(x * x + y * y + z * z)
+            shear = math.sqrt(x * x + y * y)
+            norm = z
 
-        mag_signals[i] = mag
-        slip_signals[i] = slip
+            if prev_shear is None:
+                d_shear = 0.0
+                d_norm = 0.0
+                ratio = 0.0
+                slip = 0.0
+            else:
+                d_shear = shear - prev_shear
+                d_norm = norm - prev_norm
+                ratio = abs(d_shear) / (abs(d_norm) + ratio_epsilon)
+
+                if abs(d_shear) >= shear_delta_threshold and ratio >= slip_ratio_threshold:
+                    slip = abs(d_shear)
+                else:
+                    slip = 0.0
+
+            mag_vals.append(mag)
+            shear_vals.append(shear)
+            norm_vals.append(norm)
+            ratio_vals.append(ratio)
+            slip_vals.append(slip)
+
+            prev_shear = shear
+            prev_norm = norm
+
+        if smooth_window > 1:
+            mag_vals = moving_average(mag_vals, smooth_window)
+
+        mag_signals[i] = mag_vals
+        shear_signals[i] = shear_vals
+        norm_signals[i] = norm_vals
+        ratio_signals[i] = ratio_vals
+        slip_signals[i] = slip_vals
 
     return {
         "t": t,
         "sample_idx": sample_idx,
         "mags": mags,
         "mag_signals": mag_signals,
+        "shear_signals": shear_signals,
+        "norm_signals": norm_signals,
+        "ratio_signals": ratio_signals,
         "slip_signals": slip_signals,
     }
 
+# def process_anyskin_rows(rows, fieldnames, smooth_window=1, slip_smooth_window=1):
+#     if not rows:
+#         return None
+
+#     mags = detect_anyskin_mags(fieldnames)
+#     t = [row["t_pc"] for row in rows]
+#     sample_idx = [row["sample_idx"] for row in rows]
+
+#     mag_signals = {}
+#     slip_signals = {}
+
+#     for i in mags:
+#         raw_mag = []
+#         for row in rows:
+#             x = row[f"m{i}_x"]
+#             y = row[f"m{i}_y"]
+#             z = row[f"m{i}_z"]
+#             raw_mag.append(math.sqrt(x * x + y * y + z * z))
+
+#         # no smoothing before slip
+#         mag = raw_mag
+
+#         # instantaneous slip
+#         slip = compute_slip_proxy(t, mag)
+
+#         # no smoothing after slip
+#         mag_signals[i] = mag
+#         slip_signals[i] = slip
+
+#     return {
+#         "t": t,
+#         "sample_idx": sample_idx,
+#         "mags": mags,
+#         "mag_signals": mag_signals,
+#         "slip_signals": slip_signals,
+#     }
 
 def detect_detach(load_t, load_force, drop_threshold=0.02, min_force=0.05):
     if len(load_force) < 2:
@@ -172,14 +323,23 @@ def detect_detach(load_t, load_force, drop_threshold=0.02, min_force=0.05):
 class OnlineFeatureConfig:
     num_raspberry_sensors: int = 8
     num_anyskin_mags: int = 5
-    raspberry_window: int = 10
-    raspberry_base_samples: int = 100
+    raspberry_window: int = 5 #before 10
+    raspberry_base_samples: int = 10 #before 100
     raspberry_trend_horizon: int = 30  # steps over which to compute pressure trend
     zero_deadband: float = 8.0
-    anyskin_smooth_window: int = 10
-    anyskin_slip_threshold: float = 30.0  # raw step-to-step magnitude diff; noise floor max ~28, genuine slip up to ~174
+    anyskin_smooth_window: int = 1
+    anyskin_slip_threshold: float = 40.0  # raw step-to-step magnitude diff; noise floor max ~28, genuine slip up to ~174
     detach_drop_threshold: float = 0.01
     detach_min_force: float = 0.05
+    detach_count_required: int = 1
+        # Guard against division by zero in shear/normal ratio
+    anyskin_ratio_epsilon: float = 1e-6
+
+    # Minimum absolute shear change before we consider slip
+    anyskin_shear_delta_threshold: float = 8.0
+
+    # Ratio threshold: abs(d_shear) / (abs(d_norm) + eps)
+    anyskin_slip_ratio_threshold: float = 2.0
 
 
 class RunningAverage:
@@ -227,10 +387,16 @@ class OnlineFeatureProcessor:
         self.raspberry_avgs = [RunningAverage(self.cfg.raspberry_window, 0.0) for _ in range(self.cfg.num_raspberry_sensors)]
         self.raspberry_trend_buf: Deque[np.ndarray] = deque(maxlen=self.cfg.raspberry_trend_horizon)
         self.anyskin_mag_avgs = [RunningAverage(self.cfg.anyskin_smooth_window, 0.0) for _ in range(self.cfg.num_anyskin_mags)]
-        self.prev_anyskin_mag_raw = np.zeros(self.cfg.num_anyskin_mags, dtype=np.float32)
+        self.prev_anyskin_shear_raw = np.zeros(self.cfg.num_anyskin_mags, dtype=np.float32)
+        self.prev_anyskin_norm_raw = np.zeros(self.cfg.num_anyskin_mags, dtype=np.float32)
+        self.anyskin_pull_shear_baseline: Optional[np.ndarray] = None
         self.prev_load_force = 0.0
         self.running_peak_force = None
         self.detach_armed = False
+        self.prev_load_force = 0.0
+        self.running_peak_force = 0.0
+        self.detach_drop_count = 0
+
 
     def _process_raspberry(self, raw_pressures: List[float]):
         processed = []
@@ -248,44 +414,106 @@ class OnlineFeatureProcessor:
         self.raspberry_trend_buf.append(processed_arr.copy())
         return processed_arr, diff.astype(np.float32)
 
-    def _process_anyskin(self, raw_anyskin: List[float]):
+    # def _process_anyskin(self, raw_anyskin: List[float]):
+    #     mags = []
+    #     raw_mags = []
+    #     slips = []
+    #     if len(raw_anyskin) < 3 * self.cfg.num_anyskin_mags:
+    #         raw_anyskin = list(raw_anyskin) + [0.0] * (3 * self.cfg.num_anyskin_mags - len(raw_anyskin))
+    #     for i in range(self.cfg.num_anyskin_mags):
+    #         x, y, z = raw_anyskin[3 * i : 3 * i + 3]
+    #         mag_raw = math.sqrt(x * x + y * y + z * z)
+    #         mag = self.anyskin_mag_avgs[i].update(mag_raw)
+    #         slip_raw = abs(mag_raw - float(self.prev_anyskin_mag_raw[i]))
+    #         slip = slip_raw if slip_raw >= self.cfg.anyskin_slip_threshold else 0.0
+    #         mags.append(mag)
+    #         raw_mags.append(mag_raw)
+    #         slips.append(slip)
+    #     mags_arr = np.asarray(mags, dtype=np.float32)
+    #     slips_arr = np.asarray(slips, dtype=np.float32)
+    #     self.prev_anyskin_mag_raw = np.asarray(raw_mags, dtype=np.float32)
+    #     return mags_arr, slips_arr
+
+    def _process_anyskin(self, raw_anyskin: List[float], pull_started: bool):
         mags = []
-        raw_mags = []
-        slips = []
+        shear_raws = []
+
         if len(raw_anyskin) < 3 * self.cfg.num_anyskin_mags:
             raw_anyskin = list(raw_anyskin) + [0.0] * (3 * self.cfg.num_anyskin_mags - len(raw_anyskin))
+
         for i in range(self.cfg.num_anyskin_mags):
             x, y, z = raw_anyskin[3 * i : 3 * i + 3]
             mag_raw = math.sqrt(x * x + y * y + z * z)
             mag = self.anyskin_mag_avgs[i].update(mag_raw)
-            slip_raw = abs(mag_raw - float(self.prev_anyskin_mag_raw[i]))
-            slip = slip_raw if slip_raw >= self.cfg.anyskin_slip_threshold else 0.0
             mags.append(mag)
-            raw_mags.append(mag_raw)
-            slips.append(slip)
-        mags_arr = np.asarray(mags, dtype=np.float32)
-        slips_arr = np.asarray(slips, dtype=np.float32)
-        self.prev_anyskin_mag_raw = np.asarray(raw_mags, dtype=np.float32)
-        return mags_arr, slips_arr
+            shear_raws.append(math.sqrt(x * x + y * y))
 
-    def _process_load(self, raw_force: float):
+        shear_arr = np.asarray(shear_raws, dtype=np.float32)
+
+        if pull_started:
+            # Latch baseline at the first call after pull starts
+            if self.anyskin_pull_shear_baseline is None:
+                self.anyskin_pull_shear_baseline = shear_arr.copy()
+            # Slip = cumulative shear drift from pull-start baseline
+            slip_raw = np.abs(shear_arr - self.anyskin_pull_shear_baseline)
+            slips_arr = np.where(slip_raw >= self.cfg.anyskin_shear_delta_threshold, slip_raw, 0.0).astype(np.float32)
+        else:
+            self.anyskin_pull_shear_baseline = None
+            slips_arr = np.zeros(self.cfg.num_anyskin_mags, dtype=np.float32)
+
+        return np.asarray(mags, dtype=np.float32), slips_arr
+
+    # def _process_load(self, raw_force: float):
+    #     load_diff = float(raw_force - self.prev_load_force)
+    #     self.prev_load_force = float(raw_force)
+
+    #     detach = False
+    #     if not self.detach_armed and raw_force >= self.cfg.detach_min_force:
+    #         self.detach_armed = True
+    #         self.running_peak_force = raw_force
+    #     if self.detach_armed:
+    #         self.running_peak_force = max(float(self.running_peak_force), float(raw_force))
+    #         if (self.running_peak_force - raw_force) >= self.cfg.detach_drop_threshold:
+    #             detach = True
+    #     return np.asarray([raw_force, load_diff], dtype=np.float32), detach
+
+    def _process_load(self, raw_force: float, pull_started: bool):
         load_diff = float(raw_force - self.prev_load_force)
         self.prev_load_force = float(raw_force)
 
+        # Only detect detach during pull
+        if not pull_started:
+            self.detach_armed = False
+            self.running_peak_force = 0.0
+            self.detach_drop_count = 0
+            return np.asarray([raw_force, load_diff], dtype=np.float32), False
+
         detach = False
+
+        # Arm once force is high enough
         if not self.detach_armed and raw_force >= self.cfg.detach_min_force:
             self.detach_armed = True
-            self.running_peak_force = raw_force
+            self.running_peak_force = float(raw_force)
+            self.detach_drop_count = 0
+
         if self.detach_armed:
             self.running_peak_force = max(float(self.running_peak_force), float(raw_force))
+
+            # Require a steep enough drop for multiple consecutive samples
             if (self.running_peak_force - raw_force) >= self.cfg.detach_drop_threshold:
+                self.detach_drop_count += 1
+            else:
+                self.detach_drop_count = 0
+
+            if self.detach_drop_count >= self.cfg.detach_count_required:
                 detach = True
+
         return np.asarray([raw_force, load_diff], dtype=np.float32), detach
 
-    def process(self, raw_pressures: List[float], raw_anyskin: List[float], raw_force: float):
+    def process(self, raw_pressures: List[float], raw_anyskin: List[float], raw_force: float, pull_started: bool):
         raspberry_proc, raspberry_diff = self._process_raspberry(raw_pressures)
-        anyskin_mag, anyskin_slip = self._process_anyskin(raw_anyskin)
-        load_vec, detach = self._process_load(raw_force)
+        anyskin_mag, anyskin_slip = self._process_anyskin(raw_anyskin, pull_started)
+        load_vec, detach = self._process_load(raw_force, pull_started)
         state = np.concatenate([
             raspberry_proc,
             raspberry_diff,

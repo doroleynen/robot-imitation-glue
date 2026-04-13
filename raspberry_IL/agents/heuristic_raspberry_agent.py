@@ -73,19 +73,22 @@ class HeuristicRaspberryAgent(BaseAgent):
 
     def __init__(
         self,
-        close_delta_pre_contact: float = -0.0015,
-        slip_threshold: float = 30,
-        slip_close_step: float = -0.0008,
+        close_delta_pre_contact: float = -0.0002, #before 0.0015
+        slip_threshold: float = 10,
+        slip_close_step: float = -0.0002, #before 0.0008
         max_close_per_step: float = -0.0030,
+        grasp_pressure_threshold: float = 400.0
     ):
         self.close_delta_pre_contact = close_delta_pre_contact
         self.slip_threshold = slip_threshold
         self.slip_close_step = slip_close_step
         self.max_close_per_step = max_close_per_step
+        self.grasp_pressure_threshold = grasp_pressure_threshold
 
     def get_action(self, observation):
         slip = observation.get("anyskin_slip", np.zeros((5,), dtype=np.float32))
         phase = observation.get("phase", np.zeros((3,), dtype=np.float32))
+        rasp = observation.get("raspberry_state", np.zeros((8,), dtype=np.float32))
 
         contact_started = bool(phase[0] > 0.5)
         pull_started = bool(phase[1] > 0.5)
@@ -95,10 +98,17 @@ class HeuristicRaspberryAgent(BaseAgent):
             return np.array([0.0], dtype=np.float32)
 
         max_slip = float(np.max(slip)) if len(slip) else 0.0
+        max_rasp = float(np.max(rasp)) if len(rasp) else 0.0
 
         # Before contact: gently close
         if not contact_started:
             action = self.close_delta_pre_contact
+        
+        elif not pull_started:
+            if max_rasp < self.grasp_pressure_threshold:
+                action = self.close_delta_pre_contact
+            else:
+                action = 0.0
         # During pull: only tighten if slip is detected
         elif pull_started:
             if max_slip > self.slip_threshold:

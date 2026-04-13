@@ -34,9 +34,9 @@ class RaspberryPickEnv(BaseEnv):
     def __init__(
         self,
         robot_ip: str = "10.42.0.163",
-        raspberry_port: str = "/dev/ttyACM2",
-        loadcell_port: str = "/dev/ttyACM3",
-        anyskin_port: str = "/dev/ttyACM1",
+        raspberry_port: str = "/dev/ttyACM3",
+        loadcell_port: str = "/dev/ttyACM1",
+        anyskin_port: str = "/dev/ttyACM2",
         baud_rate: int = 115200,
         anyskin_num_mags: int = 5,
         anyskin_temp_filtered: bool     = True,
@@ -45,11 +45,12 @@ class RaspberryPickEnv(BaseEnv):
         arm_joint_speed: float = 0.15,
         gripper_speed: float = 0.03,
         gripper_force: float = 40.0,
-        initial_open_width: float = 0.085,
+        initial_open_width: float = 0.080,
         close_action_scale: float = 1.0,
         auto_start_pull_on_contact: bool = True,
         trial_log_root: str = "trial_logs_policy",
         feature_cfg: Optional[OnlineFeatureConfig] = None,
+        grasp_threshold = 600
     ):
         self.robot_ip = robot_ip
         self.raspberry_port = raspberry_port
@@ -71,6 +72,7 @@ class RaspberryPickEnv(BaseEnv):
         self.processor = OnlineFeatureProcessor(self.feature_cfg)
         self.trial_log_root = Path(trial_log_root)
         self.trial_log_root.mkdir(parents=True, exist_ok=True)
+        self.grasp_threshold = grasp_threshold
 
         self.SAFE_Q = np.array([-1.95987827, -3.30249323, 0.78052837, -2.17082896, -1.58573944, -1.50839597 + np.pi/2], dtype=float)
         self.APPROACH_Q = np.array([-1.11505634, -3.45552363, 0.50535185, -1.8370768, -1.58581144, -1.5083831 + np.pi/2], dtype=float)
@@ -109,7 +111,7 @@ class RaspberryPickEnv(BaseEnv):
 
         self.pull_active = False
         self.pull_alpha = 0.0
-        self.pull_alpha_step = 0.03   # tune this
+        self.pull_alpha_step = 0.03   # tune this, before 0.03
         self.pull_started = False
 
         self._start_sensor_threads()
@@ -239,7 +241,7 @@ class RaspberryPickEnv(BaseEnv):
     def _move_arm_q(self, q_target: np.ndarray):
         self.robot.move_to_joint_configuration(q_target, joint_speed=self.arm_joint_speed).wait()
 
-    def reset(self, trial_idx: Optional[int] = None):
+    def reset(self, trial_idx: Optional[int] = None, skip_motion: bool = False):
         if trial_idx is not None:
             self.current_trial_idx = int(trial_idx)
         else:
@@ -263,13 +265,14 @@ class RaspberryPickEnv(BaseEnv):
 
         self.processor.reset()
 
-        self.move_gripper(self.initial_open_width)
-        self._move_arm_q(self.SAFE_Q)
-        self.log_event("safe_pose_reached")
-        self._move_arm_q(self.APPROACH_Q)
-        self.log_event("approach_reached")
-        self._move_arm_q(self.GRASP_Q)
-        self.log_event("grasp_pose_reached")
+        if not skip_motion:
+            self.move_gripper(self.initial_open_width)
+            self._move_arm_q(self.SAFE_Q)
+            self.log_event("safe_pose_reached")
+            self._move_arm_q(self.APPROACH_Q)
+            self.log_event("approach_reached")
+            self._move_arm_q(self.GRASP_Q)
+            self.log_event("grasp_pose_reached")
         return self.get_observations()
 
     def get_joint_configuration(self):
@@ -295,6 +298,7 @@ class RaspberryPickEnv(BaseEnv):
             raw_pressures=raw["raspberry"],
             raw_anyskin=raw["anyskin"],
             raw_force=raw["force"],
+            pull_started=self.pull_started,
         )
         gripper_state = self.get_gripper_opening().astype(np.float32)
         state = np.concatenate([processed["state"], gripper_state], axis=0).astype(np.float32)
@@ -302,7 +306,7 @@ class RaspberryPickEnv(BaseEnv):
         max_rasp = float(np.max(processed["raspberry_state"])) if processed["raspberry_state"].size else 0.0
         max_slip = float(np.max(processed["anyskin_slip"])) if processed["anyskin_slip"].size else 0.0
         # if not self.contact_started and max_rasp > max(self.feature_cfg.zero_deadband, 1.0):
-        if not self.contact_started and max_rasp > 0.0:
+        if not self.contact_started and max_rasp > self.grasp_threshold:
             self.contact_started = True
             self.log_event("contact_detected", {"max_raspberry_pressure": max_rasp})
 
