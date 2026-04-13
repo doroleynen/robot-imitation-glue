@@ -341,6 +341,11 @@ class OnlineFeatureConfig:
     # Ratio threshold: abs(d_shear) / (abs(d_norm) + eps)
     anyskin_slip_ratio_threshold: float = 2.0
 
+    # Contact detection via smoothed z-component delta from baseline
+    anyskin_contact_z_window: int = 100    # running average window (~200ms at 500Hz)
+    anyskin_contact_base_samples: int = 200  # samples to establish z baseline after reset
+    anyskin_contact_threshold: float = 5.0  # smoothed z-delta threshold for contact
+
 
 class RunningAverage:
     def __init__(self, window: int, prefill_value: float = 0.0):
@@ -390,6 +395,8 @@ class OnlineFeatureProcessor:
         self.prev_anyskin_shear_raw = np.zeros(self.cfg.num_anyskin_mags, dtype=np.float32)
         self.prev_anyskin_norm_raw = np.zeros(self.cfg.num_anyskin_mags, dtype=np.float32)
         self.anyskin_pull_shear_baseline: Optional[np.ndarray] = None
+        self.anyskin_contact_z_avgs = [RunningAverage(self.cfg.anyskin_contact_z_window, 0.0) for _ in range(self.cfg.num_anyskin_mags)]
+        self.anyskin_contact_z_baselines = [BaselineEstimator(self.cfg.anyskin_contact_base_samples) for _ in range(self.cfg.num_anyskin_mags)]
         self.prev_load_force = 0.0
         self.running_peak_force = None
         self.detach_armed = False
@@ -450,6 +457,16 @@ class OnlineFeatureProcessor:
 
         shear_arr = np.asarray(shear_raws, dtype=np.float32)
 
+        # Contact signal: max positive z-delta from smoothed baseline across all sensors
+        contact_signal = 0.0
+        for i in range(self.cfg.num_anyskin_mags):
+            x, y, z = raw_anyskin[3 * i : 3 * i + 3]
+            z_smooth = self.anyskin_contact_z_avgs[i].update(float(z))
+            self.anyskin_contact_z_baselines[i].update(z_smooth)
+            z_delta = z_smooth - self.anyskin_contact_z_baselines[i].baseline
+            if z_delta > contact_signal:
+                contact_signal = z_delta
+
         if pull_started:
             # Latch baseline at the first call after pull starts
             if self.anyskin_pull_shear_baseline is None:
@@ -461,7 +478,7 @@ class OnlineFeatureProcessor:
             self.anyskin_pull_shear_baseline = None
             slips_arr = np.zeros(self.cfg.num_anyskin_mags, dtype=np.float32)
 
-        return np.asarray(mags, dtype=np.float32), slips_arr
+        return np.asarray(mags, dtype=np.float32), slips_arr, float(contact_signal)
 
     # def _process_load(self, raw_force: float):
     #     load_diff = float(raw_force - self.prev_load_force)
@@ -512,7 +529,7 @@ class OnlineFeatureProcessor:
 
     def process(self, raw_pressures: List[float], raw_anyskin: List[float], raw_force: float, pull_started: bool):
         raspberry_proc, raspberry_diff = self._process_raspberry(raw_pressures)
-        anyskin_mag, anyskin_slip = self._process_anyskin(raw_anyskin, pull_started)
+        anyskin_mag, anyskin_slip, anyskin_contact_signal = self._process_anyskin(raw_anyskin, pull_started)
         load_vec, detach = self._process_load(raw_force, pull_started)
         state = np.concatenate([
             raspberry_proc,
@@ -529,4 +546,5 @@ class OnlineFeatureProcessor:
             "anyskin_slip": anyskin_slip.astype(np.float32),
             "loadcell_state": load_vec.astype(np.float32),
             "detach_detected": detach,
+            "anyskin_contact_signal": anyskin_contact_signal,
         }

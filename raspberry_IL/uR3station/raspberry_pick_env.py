@@ -305,12 +305,11 @@ class RaspberryPickEnv(BaseEnv):
         gripper_state = self.get_gripper_opening().astype(np.float32)
         state = np.concatenate([processed["state"], gripper_state], axis=0).astype(np.float32)
 
-        max_rasp = float(np.max(processed["raspberry_state"])) if processed["raspberry_state"].size else 0.0
         max_slip = float(np.max(processed["anyskin_slip"])) if processed["anyskin_slip"].size else 0.0
-        # if not self.contact_started and max_rasp > max(self.feature_cfg.zero_deadband, 1.0):
-        if not self.contact_started and max_rasp > self.grasp_threshold:
+        anyskin_contact = processed["anyskin_contact_signal"]
+        if not self.contact_started and anyskin_contact > self.feature_cfg.anyskin_contact_threshold:
             self.contact_started = True
-            self.log_event("contact_detected", {"max_raspberry_pressure": max_rasp})
+            self.log_event("contact_detected", {"anyskin_contact_signal": anyskin_contact})
 
 
         if processed["detach_detected"] and not self.detach_detected and self.pull_started:
