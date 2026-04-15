@@ -341,10 +341,11 @@ class OnlineFeatureConfig:
     # Ratio threshold: abs(d_shear) / (abs(d_norm) + eps)
     anyskin_slip_ratio_threshold: float = 2.0
 
-    # Contact detection via smoothed z-component delta from baseline
-    anyskin_contact_z_window: int = 100    # running average window (~200ms at 500Hz)
-    anyskin_contact_base_samples: int = 200  # samples to establish z baseline after reset
-    anyskin_contact_threshold: float = 5.0  # smoothed z-delta threshold for contact
+    # Contact detection via smoothed magnitude delta from baseline
+    # NOTE: these are called at control-loop rate (~10 Hz), not sensor rate
+    anyskin_contact_z_window: int = 3      # running average window (~0.3s at 10Hz)
+    anyskin_contact_base_samples: int = 15  # samples to establish magnitude baseline (~1.5s at 10Hz)
+    anyskin_contact_threshold: float = 15.0  # magnitude delta threshold; noise floor ~6 (3-sample smoothed), contact ~50-100+
 
 
 class RunningAverage:
@@ -457,26 +458,31 @@ class OnlineFeatureProcessor:
 
         shear_arr = np.asarray(shear_raws, dtype=np.float32)
 
-        # Contact signal: max positive z-delta from smoothed baseline across all sensors
+        # Contact signal: max magnitude delta from per-episode baseline.
+        # Feed mags[i] directly (no extra smoothing) so the baseline doesn't inherit
+        # ramp-up artefacts from a zero-prefilled RunningAverage.
+        # Only check delta once the baseline is fully established (ready).
         contact_signal = 0.0
         for i in range(self.cfg.num_anyskin_mags):
-            x, y, z = raw_anyskin[3 * i : 3 * i + 3]
-            z_smooth = self.anyskin_contact_z_avgs[i].update(float(z))
-            self.anyskin_contact_z_baselines[i].update(z_smooth)
-            z_delta = z_smooth - self.anyskin_contact_z_baselines[i].baseline
-            if z_delta > contact_signal:
-                contact_signal = z_delta
+            self.anyskin_contact_z_baselines[i].update(mags[i])
+            if self.anyskin_contact_z_baselines[i].ready:
+                mag_delta = abs(mags[i] - self.anyskin_contact_z_baselines[i].baseline)
+                if mag_delta > contact_signal:
+                    contact_signal = mag_delta
 
-        if pull_started:
-            # Latch baseline at the first call after pull starts
-            if self.anyskin_pull_shear_baseline is None:
-                self.anyskin_pull_shear_baseline = shear_arr.copy()
-            # Slip = cumulative shear drift from pull-start baseline
-            slip_raw = np.abs(shear_arr - self.anyskin_pull_shear_baseline)
-            slips_arr = np.where(slip_raw >= self.cfg.anyskin_shear_delta_threshold, slip_raw, 0.0).astype(np.float32)
-        else:
-            self.anyskin_pull_shear_baseline = None
-            slips_arr = np.zeros(self.cfg.num_anyskin_mags, dtype=np.float32)
+        # Slip: step-to-step shear delta with shear/normal ratio check.
+        # This detects sudden shear changes (real slip events) rather than
+        # steady-state shear buildup from the pull motion.
+        norm_raws = np.asarray(
+            [raw_anyskin[3 * i + 2] for i in range(self.cfg.num_anyskin_mags)], dtype=np.float32
+        )
+        d_shear = shear_arr - self.prev_anyskin_shear_raw
+        d_norm = norm_raws - self.prev_anyskin_norm_raw
+        ratio = np.abs(d_shear) / (np.abs(d_norm) + self.cfg.anyskin_ratio_epsilon)
+        slip_mask = (np.abs(d_shear) >= self.cfg.anyskin_shear_delta_threshold) & (ratio >= self.cfg.anyskin_slip_ratio_threshold)
+        slips_arr = np.where(slip_mask, np.abs(d_shear), 0.0).astype(np.float32)
+        self.prev_anyskin_shear_raw = shear_arr.copy()
+        self.prev_anyskin_norm_raw = norm_raws.copy()
 
         return np.asarray(mags, dtype=np.float32), slips_arr, float(contact_signal)
 

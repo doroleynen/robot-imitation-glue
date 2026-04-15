@@ -35,8 +35,8 @@ class RaspberryPickEnv(BaseEnv):
         self,
         robot_ip: str = "10.42.0.163",
         raspberry_port: str = "/dev/ttyACM3",
-        loadcell_port: str = "/dev/ttyACM1",
-        anyskin_port: str = "/dev/ttyACM2",
+        loadcell_port: str = "/dev/ttyACM2",
+        anyskin_port: str = "/dev/ttyACM1",
         baud_rate: int = 115200,
         anyskin_num_mags: int = 5,
         anyskin_temp_filtered: bool     = True,
@@ -76,7 +76,7 @@ class RaspberryPickEnv(BaseEnv):
 
         self.SAFE_Q = np.array([-1.95987827, -3.30249323, 0.78052837, -2.17082896, -1.58573944, -1.50839597 + np.pi/2], dtype=float)
         self.APPROACH_Q = np.array([-1.11505634, -3.45552363, 0.50535185, -1.8370768, -1.58581144, -1.5083831 + np.pi/2], dtype=float)
-        self.GRASP_Q = np.array([-1.07907039, -3.29095234, 0.50338775, -1.98487296, -1.54438192, -1.97415287 + np.pi/2], dtype=float)
+        self.GRASP_Q = np.array([-1.09753114, -2.86311545, -0.37376621, -1.51594122, -1.55546457, -0.4388302 ], dtype=float)
         self.PULL_Q = np.array([-1.1152199, -3.03422322, -0.42365354, -1.29017635, -1.58889419, -1.97281915 + np.pi/2], dtype=float)
 
 

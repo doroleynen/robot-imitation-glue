@@ -1,3 +1,4 @@
 
 from .heuristic_raspberry_agent import HeuristicRaspberryAgent
 from .bc_raspberry_agent import BCRaspberryAgent
+from .pid_raspberry_agent import PIDRaspberryAgent

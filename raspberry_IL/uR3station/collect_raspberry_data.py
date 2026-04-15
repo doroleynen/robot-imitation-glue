@@ -6,6 +6,7 @@ import numpy as np
 
 from raspberry_IL.agents.bc_raspberry_agent import BCRaspberryAgent
 from raspberry_IL.agents.heuristic_raspberry_agent import HeuristicRaspberryAgent
+from raspberry_IL.agents.pid_raspberry_agent import PIDRaspberryAgent
 from raspberry_IL.dataset_recorder import LeRobotDatasetRecorder
 from raspberry_IL.uR3station.raspberry_pick_env import RaspberryPickEnv
 
@@ -23,7 +24,7 @@ def main():
     parser.add_argument("--fps", type=int, default=10)
     parser.add_argument("--episodes", type=int, default=10)
     parser.add_argument("--max-steps", type=int, default=120)
-    parser.add_argument("--mode", choices=["heuristic", "bc"], default="heuristic")
+    parser.add_argument("--mode", choices=["heuristic", "bc", "pid"], default="heuristic")
     parser.add_argument("--checkpoint", default=None)
     parser.add_argument("--trial-log-dir", default="trial_logs_policy")
     args = parser.parse_args()
@@ -31,6 +32,8 @@ def main():
     env = RaspberryPickEnv(trial_log_root=args.trial_log_dir)
     if args.mode == "heuristic":
         agent = HeuristicRaspberryAgent()
+    elif args.mode == "pid":
+        agent = PIDRaspberryAgent()
     else:
         if args.checkpoint is None:
             raise ValueError("--checkpoint is required in bc mode")
