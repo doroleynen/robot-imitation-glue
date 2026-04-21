@@ -74,10 +74,10 @@ class HeuristicRaspberryAgent(BaseAgent):
     def __init__(
         self,
         close_delta_pre_contact: float = -0.001,
-        slip_threshold: float = 10,
-        slip_close_step: float = -0.001,
-        max_close_per_step: float = -0.0030,
-        min_gripper_width: float = 0.025,  # safety: never close below this regardless of sensor state
+        slip_threshold: float = 15,
+        slip_close_step: float = -0.0005,
+        max_close_per_step: float = -0.002,
+        min_gripper_width: float = 0.025,
     ):
         self.close_delta_pre_contact = close_delta_pre_contact
         self.slip_threshold = slip_threshold
@@ -97,24 +97,22 @@ class HeuristicRaspberryAgent(BaseAgent):
         if detach_detected:
             return np.array([0.0], dtype=np.float32)
 
-        # Safety: never close below minimum width regardless of sensor state
         if gripper_width <= self.min_gripper_width:
             return np.array([0.0], dtype=np.float32)
 
         max_slip = float(np.max(slip)) if len(slip) else 0.0
 
-        # Before contact: gently close
         if not contact_started:
             action = self.close_delta_pre_contact
-        # Contact detected, pull not started yet: hold — pull starts next step
         elif not pull_started:
             action = 0.0
-        # During pull: only tighten if slip is detected
         elif pull_started:
             if max_slip > self.slip_threshold:
                 action = self.slip_close_step
+                print(f"[heuristic] SLIP tightening | slip={max_slip:.2f} | gripper={gripper_width:.4f}m")
             else:
                 action = 0.0
+                print(f"[heuristic] pull hold      | slip={max_slip:.2f} | gripper={gripper_width:.4f}m")
         else:
             action = 0.0
 

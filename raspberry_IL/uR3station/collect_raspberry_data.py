@@ -11,10 +11,9 @@ from raspberry_IL.dataset_recorder import LeRobotDatasetRecorder
 from raspberry_IL.uR3station.raspberry_pick_env import RaspberryPickEnv
 
 
-def delta_to_abs_gripper(current_width: np.ndarray, action: np.ndarray, min_width: float, max_width: float):
-    target = float(current_width[0] + action[0])
-    target = float(np.clip(target, min_width, max_width))
-    return np.array([target], dtype=np.float32)
+def apply_delta_to_commanded(commanded_width: float, action: np.ndarray, min_width: float, max_width: float):
+    target = float(np.clip(commanded_width + action[0], min_width, max_width))
+    return target
 
 
 def main():
@@ -29,7 +28,7 @@ def main():
     parser.add_argument("--trial-log-dir", default="trial_logs_policy")
     args = parser.parse_args()
 
-    env = RaspberryPickEnv(trial_log_root=args.trial_log_dir)
+    env = RaspberryPickEnv(trial_log_root=args.trial_log_dir, fps=args.fps)
     if args.mode == "heuristic":
         agent = HeuristicRaspberryAgent()
     elif args.mode == "pid":
@@ -55,18 +54,19 @@ def main():
             print(f"\n=== Episode {episode_idx + 1}/{args.episodes} ===")
             obs = env.reset(trial_idx=episode_idx + 1)
             dataset_recorder.start_episode()
+            commanded_width = float(env.gripper.gripper_specs.max_width)
 
             for _ in range(args.max_steps):
                 cycle_end = time.time() + period
                 obs = env.get_observations()
                 action = agent.get_action(obs).astype(np.float32)
-                new_gripper = delta_to_abs_gripper(
-                    obs["gripper_state"],
+                commanded_width = apply_delta_to_commanded(
+                    commanded_width,
                     action,
                     env.gripper.gripper_specs.min_width,
                     env.gripper.gripper_specs.max_width,
                 )
-                env.act(env.get_robot_pose_se3(), new_gripper, timestamp=cycle_end)
+                env.act(env.get_robot_pose_se3(), np.array([commanded_width], dtype=np.float32), timestamp=cycle_end)
                 dataset_recorder.record_step(obs, action)
                 if env.episode_done:
                     break

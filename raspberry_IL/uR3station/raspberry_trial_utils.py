@@ -404,6 +404,7 @@ class OnlineFeatureProcessor:
         self.prev_load_force = 0.0
         self.running_peak_force = 0.0
         self.detach_drop_count = 0
+        self.load_baseline = BaselineEstimator(10)  # tare from first ~1s of episode
 
 
     def _process_raspberry(self, raw_pressures: List[float]):

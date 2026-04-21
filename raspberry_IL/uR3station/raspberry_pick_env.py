@@ -6,7 +6,8 @@ from typing import Dict, List, Optional
 
 import numpy as np
 import serial
-from airo_robots.grippers.hardware.robotiq_2f85_urcap import Robotiq2F85
+from airo_robots.grippers.parallel_position_gripper import ParallelPositionGripperSpecs
+from raspberry_IL.hardware.grippers.schunk_process import SchunkGripperProcess, SCHUNK_DEFAULT_SPECS
 from airo_robots.manipulators.hardware.ur_rtde import URrtde
 from airo_robots.manipulators.position_manipulator import ManipulatorSpecs
 from anyskin import AnySkinBase
@@ -34,19 +35,23 @@ class RaspberryPickEnv(BaseEnv):
     def __init__(
         self,
         robot_ip: str = "10.42.0.163",
-        raspberry_port: str = "/dev/ttyACM3",
-        loadcell_port: str = "/dev/ttyACM2",
-        anyskin_port: str = "/dev/ttyACM1",
+        raspberry_port: str = "/dev/ttyACM0",
+        loadcell_port: str = "/dev/ttyACM1",
+        anyskin_port: str = "/dev/ttyACM3",
         baud_rate: int = 115200,
         anyskin_num_mags: int = 5,
         anyskin_temp_filtered: bool     = True,
         anyskin_burst_mode: bool = True,
         anyskin_baudrate: int = 115200,
+        schunk_usb_port: str = "/dev/ttyUSB0",
+        schunk_fingertip_gap: float = 0.041,  # measured gap between fingertip faces when fully open [m]
+        fps: int = 30,
         arm_joint_speed: float = 0.15,
         gripper_speed: float = 0.03,
-        gripper_force: float = 40.0,
-        initial_open_width: float = 0.080,
+        gripper_force: float = 55.0,   # Newtons; Schunk EGK40 min force is 55 N
+        initial_open_width: float = 0.041,  # open fully between picks
         close_action_scale: float = 1.0,
+        grip_force_pct: float = 50.0,
         auto_start_pull_on_contact: bool = True,
         trial_log_root: str = "trial_logs_policy",
         feature_cfg: Optional[OnlineFeatureConfig] = None,
@@ -62,11 +67,16 @@ class RaspberryPickEnv(BaseEnv):
         self.anyskin_burst_mode = anyskin_burst_mode
         self.anyskin_baudrate = anyskin_baudrate
         self.anyskin_fields = make_anyskin_fieldnames(anyskin_num_mags, anyskin_temp_filtered)
+        self.schunk_usb_port = schunk_usb_port
+        self.schunk_fingertip_gap = schunk_fingertip_gap
+        self.fps = fps
+        self.step_duration = 1.0 / fps
         self.arm_joint_speed = arm_joint_speed
         self.gripper_speed = gripper_speed
         self.gripper_force = gripper_force
         self.initial_open_width = initial_open_width
         self.close_action_scale = close_action_scale
+        self.grip_force_pct = grip_force_pct
         self.auto_start_pull_on_contact = auto_start_pull_on_contact
         self.feature_cfg = feature_cfg or OnlineFeatureConfig(num_anyskin_mags=anyskin_num_mags)
         self.processor = OnlineFeatureProcessor(self.feature_cfg)
@@ -76,12 +86,20 @@ class RaspberryPickEnv(BaseEnv):
 
         self.SAFE_Q = np.array([-1.95987827, -3.30249323, 0.78052837, -2.17082896, -1.58573944, -1.50839597 + np.pi/2], dtype=float)
         self.APPROACH_Q = np.array([-1.11505634, -3.45552363, 0.50535185, -1.8370768, -1.58581144, -1.5083831 + np.pi/2], dtype=float)
-        self.GRASP_Q = np.array([-1.09753114, -2.86311545, -0.37376621, -1.51594122, -1.55546457, -0.4388302 ], dtype=float)
-        self.PULL_Q = np.array([-1.1152199, -3.03422322, -0.42365354, -1.29017635, -1.58889419, -1.97281915 + np.pi/2], dtype=float)
+        self.GRASP_Q = np.array([-1.10390693, -3.15516963,  0.25227815, -1.8117763,  -1.5877412,  -0.37221128], dtype=float)
+        self.PULL_Q = np.array([-1.10682089, -3.37033667,  0.25198061, -1.61171593, -1.5946315,  -0.29704267], dtype=float)
 
 
         self.robot = URrtde(self.robot_ip, manipulator_specs=ur3_specs)
-        self.gripper = Robotiq2F85(self.robot_ip)
+        fingertip_specs = ParallelPositionGripperSpecs(
+            max_width=self.schunk_fingertip_gap,
+            min_width=SCHUNK_DEFAULT_SPECS.min_width,
+            max_force=SCHUNK_DEFAULT_SPECS.max_force,
+            min_force=SCHUNK_DEFAULT_SPECS.min_force,
+            max_speed=SCHUNK_DEFAULT_SPECS.max_speed,
+            min_speed=SCHUNK_DEFAULT_SPECS.min_speed,
+        )
+        self.gripper = SchunkGripperProcess(self.schunk_usb_port, gripper_specs=fingertip_specs)
 
         self._raspberry_serial = None
         self._loadcell_serial = None
@@ -111,8 +129,12 @@ class RaspberryPickEnv(BaseEnv):
 
         self.pull_active = False
         self.pull_alpha = 0.0
-        self.pull_alpha_step = 0.03   # tune this, before 0.03
+        self.pull_alpha_step = 0.1   # tune this, before 0.03
         self.pull_started = False
+        self.logging_active = False
+        self._last_servo_target: Optional[float] = None
+        self._servo_deadzone: float = 0.0002  # m; skip re-issuing servo if change is smaller than this
+        self._scripted_phase: str = "approach"  # "approach" -> "grasp" -> "done"
 
         self._start_sensor_threads()
         time.sleep(2.0)
@@ -124,13 +146,14 @@ class RaspberryPickEnv(BaseEnv):
         if not self.pull_active:
             return
 
-        self.pull_alpha = min(1.0, self.pull_alpha + self.pull_alpha_step)
+        # pull_alpha_step is defined as fraction of trajectory per second,
+        # so divide by fps to get fraction per control step.
+        alpha_per_step = self.pull_alpha_step / self.fps
+        self.pull_alpha = min(1.0, self.pull_alpha + alpha_per_step)
         q_cmd = self._interp_q(self.GRASP_Q, self.PULL_Q, self.pull_alpha)
 
-        self.robot.move_to_joint_configuration(
-            q_cmd,
-            joint_speed=self.arm_joint_speed,
-        ).wait()
+        # servoJ: non-blocking on Python side, robot executes for step_duration seconds.
+        self.robot.servo_to_joint_configuration(q_cmd, duration=self.step_duration)
 
     def _start_sensor_threads(self):
         self._stop_threads = False
@@ -171,6 +194,10 @@ class RaspberryPickEnv(BaseEnv):
                 self._anyskin_sensor.close()
         except Exception:
             pass
+        try:
+            self.gripper.shutdown()
+        except Exception:
+            pass
 
     def _raspberry_reader(self):
         while not self._stop_threads:
@@ -188,7 +215,7 @@ class RaspberryPickEnv(BaseEnv):
                 with self._lock:
                     self._latest_raspberry = latest
                     self._raspberry_sample_idx += 1
-                    if self.current_trial_idx > 0:
+                    if self.logging_active:
                         self.raspberry_rows.append(row)
             except Exception:
                 pass
@@ -204,7 +231,7 @@ class RaspberryPickEnv(BaseEnv):
                 with self._lock:
                     self._latest_load_force = force
                     self._loadcell_sample_idx += 1
-                    if self.current_trial_idx > 0:
+                    if self.logging_active:
                         self.loadcell_rows.append(row)
             except Exception:
                 pass
@@ -219,7 +246,7 @@ class RaspberryPickEnv(BaseEnv):
                     for name, value in zip(self.anyskin_fields, sample):
                         row[name] = float(value)
                     self._anyskin_sample_idx += 1
-                    if self.current_trial_idx > 0:
+                    if self.logging_active:
                         self.anyskin_rows.append(row)
             except Exception:
                 pass
@@ -235,8 +262,14 @@ class RaspberryPickEnv(BaseEnv):
         self.robot.servo_to_tcp_pose(pose, 0.1)
 
     def move_gripper(self, width):
+        """One-off gripper move (calls MakeReady internally — safe after long gaps)."""
         width = float(np.clip(width, self.gripper.gripper_specs.min_width, self.gripper.gripper_specs.max_width))
         self.gripper.move(width, speed=self.gripper_speed, force=self.gripper_force).wait()
+
+    def servo_gripper(self, width):
+        """Gripper move for use inside the control loop (non-blocking, no MakeReady overhead)."""
+        width = float(np.clip(width, self.gripper.gripper_specs.min_width, self.gripper.gripper_specs.max_width))
+        self.gripper.servo(width)
 
     def _move_arm_q(self, q_target: np.ndarray):
         self.robot.move_to_joint_configuration(q_target, joint_speed=self.arm_joint_speed).wait()
@@ -262,19 +295,21 @@ class RaspberryPickEnv(BaseEnv):
         self.pull_started = False
         self.pull_alpha = 0.0
         self.detach_detected = False
+        self._last_servo_target = None
+        self._scripted_phase = "approach"
 
         self.processor.reset()
 
         if not skip_motion:
-            self._move_arm_q(self.SAFE_Q)  # return to safe pose before asking for reset (no logging yet)
+            # Exit via PULL_Q first so the arm lifts away from the berry before swinging to safe
+            self._move_arm_q(self.PULL_Q)
+            self._move_arm_q(self.SAFE_Q)
             input(f"[Trial {self.current_trial_idx}] Reset setup, then press Enter to start...")
             self.move_gripper(self.initial_open_width)
             self._move_arm_q(self.SAFE_Q)
+            self.logging_active = True
             self.log_event("safe_pose_reached")
-            self._move_arm_q(self.APPROACH_Q)
-            self.log_event("approach_reached")
-            self._move_arm_q(self.GRASP_Q)
-            self.log_event("grasp_pose_reached")
+            # Approach and grasp now happen inside act() so the loop records them
         return self.get_observations()
 
     def get_joint_configuration(self):
@@ -351,19 +386,31 @@ class RaspberryPickEnv(BaseEnv):
     #         self.pull_active = False
 
     def act(self, robot_pose_se3, gripper_pose, timestamp):
-        # Start pulling as soon as contact is available, before executing
-        # another closing command.
+        # Scripted approach phase — runs as part of the episode loop so observations are recorded
+        if self._scripted_phase == "approach":
+            self._move_arm_q(self.APPROACH_Q)
+            self.log_event("approach_reached")
+            self._scripted_phase = "grasp"
+            return
+        if self._scripted_phase == "grasp":
+            self._move_arm_q(self.GRASP_Q)
+            self.log_event("grasp_pose_reached")
+            self._scripted_phase = "done"
+            return
+
         if self.contact_started and not self.pull_active:
             self.pull_active = True
             self.pull_started = True
             self.log_event("pull_start")
 
-            # Hold current width on the contact transition step
-            target_width = float(self.get_gripper_opening()[0])
-        else:
-            target_width = float(np.asarray(gripper_pose).reshape(-1)[0])
+        target_width = float(np.asarray(gripper_pose).reshape(-1)[0])
 
-        self.move_gripper(target_width)
+        if not self.pull_active:
+            self.move_gripper(target_width)
+        elif not self.detach_detected:
+            if self._last_servo_target is None or abs(target_width - self._last_servo_target) >= self._servo_deadzone:
+                self.servo_gripper(target_width)
+                self._last_servo_target = target_width
 
         if self.pull_active and not self.detach_detected:
             self._advance_pull_step()

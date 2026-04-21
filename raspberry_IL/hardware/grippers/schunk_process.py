@@ -115,6 +115,16 @@ class SchunkGripperProcess(ParallelPositionGripper):
         # Prepare gripper
         gripper.MakeReady()
 
+        # Set safe defaults for velocity and force so MOVE_POS commands actually work.
+        # If set_vel==0 the gripper silently ignores MOVE_POS commands.
+        gripper.set_vel = SCHUNK_DEFAULT_SPECS.min_speed * 1000  # m/s → mm/s
+        gripper.set_force = rescale_range(
+            SCHUNK_DEFAULT_SPECS.min_force,
+            SCHUNK_DEFAULT_SPECS.min_force,
+            SCHUNK_DEFAULT_SPECS.max_force,
+            0, 100,
+        )
+
         # bookkeeping
         gripper.set_pos = gripper.actual_pos
         last_target_position.value = gripper.actual_pos
@@ -193,7 +203,7 @@ class SchunkGripperProcess(ParallelPositionGripper):
         elif command.cmd_type == "grip":
             force = command.params.get("force", 50)
             gripper.set_force = force
-            gripper.set_vel = 0.0
+            gripper.set_vel = SCHUNK_DEFAULT_SPECS.min_speed * 1000  # mm/s; must be non-zero for MOVE_FORCE to apply
             gripper.grp_dir = True
             gripper.command_code = eCmdCode.MOVE_FORCE
             return True
@@ -306,10 +316,16 @@ class SchunkGripperProcess(ParallelPositionGripper):
     def get_current_velocity(self) -> float:
         return self._send_command_and_wait_for_result(GripperCommand(cmd_type="get_actual_vel")) / 1000.0
 
-    def move(self, width: float, speed: Optional[float] = None, force: Optional[float] = None) -> AwaitableAction:
+    def move(
+        self,
+        width: float,
+        speed: Optional[float] = None,
+        force: Optional[float] = None,
+    ) -> AwaitableAction:
         """
         Move the fingers to the desired width between the fingers[m].
         Optionally provide a speed and/or force, that will be used from then on for all move commands.
+        If speed/force are not given, the gripper's current set_vel/set_force are used (set to min values at init).
         """
         width = np.clip(width, self.gripper_specs.min_width, self.gripper_specs.max_width)
         width_mm_gripper = (self.gripper_specs.max_width - width) * 1000.0
@@ -341,6 +357,11 @@ class SchunkGripperProcess(ParallelPositionGripper):
     def grasp_object(self) -> AwaitableAction:
         self._send_command_and_wait_for_result(GripperCommand(cmd_type="grip"))
         return AwaitableAction(self.is_moving)
+
+    def force_grip(self, force_pct: float = 50.0) -> None:
+        """Issue MOVE_FORCE in the closing direction. force_pct: 0–100 (percentage of max force)."""
+        force_pct = float(np.clip(force_pct, 0, 100))
+        self._send_command_and_wait_for_result(GripperCommand(cmd_type="grip", params={"force": force_pct}))
 
 
 if __name__ == "__main__":
