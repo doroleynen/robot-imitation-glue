@@ -73,17 +73,23 @@ class HeuristicRaspberryAgent(BaseAgent):
 
     def __init__(
         self,
-        close_delta_pre_contact: float = -0.001,
-        slip_threshold: float = 15,
-        slip_close_step: float = -0.0005,
+        close_delta_pre_contact: float = -0.0005,
+        slip_threshold: float = 10,
+        slip_close_step: float = -0.0002,
         max_close_per_step: float = -0.002,
         min_gripper_width: float = 0.025,
+        slip_cooldown_steps: int = 5,
     ):
         self.close_delta_pre_contact = close_delta_pre_contact
         self.slip_threshold = slip_threshold
         self.slip_close_step = slip_close_step
         self.max_close_per_step = max_close_per_step
         self.min_gripper_width = min_gripper_width
+        self.slip_cooldown_steps = slip_cooldown_steps
+        self._slip_cooldown = 0
+
+    def reset(self):
+        self._slip_cooldown = 0
 
     def get_action(self, observation):
         slip = observation.get("anyskin_slip", np.zeros((5,), dtype=np.float32))
@@ -102,13 +108,17 @@ class HeuristicRaspberryAgent(BaseAgent):
 
         max_slip = float(np.max(slip)) if len(slip) else 0.0
 
+        if self._slip_cooldown > 0:
+            self._slip_cooldown -= 1
+
         if not contact_started:
             action = self.close_delta_pre_contact
         elif not pull_started:
             action = 0.0
         elif pull_started:
-            if max_slip > self.slip_threshold:
+            if max_slip > self.slip_threshold and self._slip_cooldown == 0:
                 action = self.slip_close_step
+                self._slip_cooldown = self.slip_cooldown_steps
                 print(f"[heuristic] SLIP tightening | slip={max_slip:.2f} | gripper={gripper_width:.4f}m")
             else:
                 action = 0.0

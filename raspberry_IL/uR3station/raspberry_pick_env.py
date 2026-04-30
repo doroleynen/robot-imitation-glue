@@ -35,10 +35,11 @@ class RaspberryPickEnv(BaseEnv):
     def __init__(
         self,
         robot_ip: str = "10.42.0.163",
-        raspberry_port: str = "/dev/ttyACM0",
+        raspberry_port: str = "/dev/ttyACM2",
         loadcell_port: str = "/dev/ttyACM1",
         anyskin_port: str = "/dev/ttyACM3",
         baud_rate: int = 115200,
+        enable_anyskin: bool = True,
         anyskin_num_mags: int = 5,
         anyskin_temp_filtered: bool     = True,
         anyskin_burst_mode: bool = True,
@@ -62,6 +63,7 @@ class RaspberryPickEnv(BaseEnv):
         self.loadcell_port = loadcell_port
         self.anyskin_port = anyskin_port
         self.baud_rate = baud_rate
+        self.enable_anyskin = enable_anyskin
         self.anyskin_num_mags = anyskin_num_mags
         self.anyskin_temp_filtered = anyskin_temp_filtered
         self.anyskin_burst_mode = anyskin_burst_mode
@@ -84,10 +86,10 @@ class RaspberryPickEnv(BaseEnv):
         self.trial_log_root.mkdir(parents=True, exist_ok=True)
         self.grasp_threshold = grasp_threshold
 
-        self.SAFE_Q = np.array([-1.95987827, -3.30249323, 0.78052837, -2.17082896, -1.58573944, -1.50839597 + np.pi/2], dtype=float)
-        self.APPROACH_Q = np.array([-1.11505634, -3.45552363, 0.50535185, -1.8370768, -1.58581144, -1.5083831 + np.pi/2], dtype=float)
-        self.GRASP_Q = np.array([-1.10390693, -3.15516963,  0.25227815, -1.8117763,  -1.5877412,  -0.37221128], dtype=float)
-        self.PULL_Q = np.array([-1.10682089, -3.37033667,  0.25198061, -1.61171593, -1.5946315,  -0.29704267], dtype=float)
+        self.SAFE_Q = np.array([-1.95987827, -3.30249323, 0.78052837, -2.17082896, -1.58573944, -1.50839597 - np.pi/2], dtype=float)
+        self.APPROACH_Q = np.array([-1.11505634, -3.45552363, 0.50535185, -1.8370768, -1.58581144, -1.5083831 - np.pi/2], dtype=float)
+        self.GRASP_Q = np.array([-1.10686428, -3.15876069,  0.25266153, -1.84043278, -1.57465107, -0.36700946 - np.pi], dtype=float)
+        self.PULL_Q = np.array([-1.10682089, -3.37033667,  0.25198061, -1.61171593, -1.5946315,  -0.29704267 - np.pi], dtype=float)
 
 
         self.robot = URrtde(self.robot_ip, manipulator_specs=ur3_specs)
@@ -129,7 +131,7 @@ class RaspberryPickEnv(BaseEnv):
 
         self.pull_active = False
         self.pull_alpha = 0.0
-        self.pull_alpha_step = 0.1   # tune this, before 0.03
+        self.pull_alpha_step = 0.1   # fraction of trajectory per second; tune this, before 0.03
         self.pull_started = False
         self.logging_active = False
         self._last_servo_target: Optional[float] = None
@@ -159,19 +161,21 @@ class RaspberryPickEnv(BaseEnv):
         self._stop_threads = False
         self._raspberry_serial = serial.Serial(self.raspberry_port, self.baud_rate, timeout=1)
         self._loadcell_serial = serial.Serial(self.loadcell_port, self.baud_rate, timeout=1)
-        self._anyskin_sensor = AnySkinBase(
-            num_mags=self.anyskin_num_mags,
-            port=self.anyskin_port,
-            baudrate=self.anyskin_baudrate,
-            burst_mode=self.anyskin_burst_mode,
-            temp_filtered=self.anyskin_temp_filtered,
-        )
+        if self.enable_anyskin:
+            self._anyskin_sensor = AnySkinBase(
+                num_mags=self.anyskin_num_mags,
+                port=self.anyskin_port,
+                baudrate=self.anyskin_baudrate,
+                burst_mode=self.anyskin_burst_mode,
+                temp_filtered=self.anyskin_temp_filtered,
+            )
 
         self._threads = [
             threading.Thread(target=self._raspberry_reader, daemon=True),
             threading.Thread(target=self._loadcell_reader, daemon=True),
-            threading.Thread(target=self._anyskin_reader, daemon=True),
         ]
+        if self.enable_anyskin:
+            self._threads.append(threading.Thread(target=self._anyskin_reader, daemon=True))
         for thread in self._threads:
             thread.start()
 
@@ -342,9 +346,14 @@ class RaspberryPickEnv(BaseEnv):
 
         max_slip = float(np.max(processed["anyskin_slip"])) if processed["anyskin_slip"].size else 0.0
         anyskin_contact = processed["anyskin_contact_signal"]
-        if not self.contact_started and anyskin_contact > self.feature_cfg.anyskin_contact_threshold:
+        raspberry_pressure = float(np.max(processed["raspberry_state"]))
+        rasp_thresh = self.feature_cfg.raspberry_contact_threshold
+        if not self.contact_started and (
+            anyskin_contact > self.feature_cfg.anyskin_contact_threshold
+            or (rasp_thresh > 0 and raspberry_pressure > rasp_thresh)
+        ):
             self.contact_started = True
-            self.log_event("contact_detected", {"anyskin_contact_signal": anyskin_contact})
+            self.log_event("contact_detected", {"anyskin_contact_signal": anyskin_contact, "raspberry_pressure": raspberry_pressure})
 
 
         if processed["detach_detected"] and not self.detach_detected and self.pull_started:

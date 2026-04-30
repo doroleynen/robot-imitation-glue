@@ -8,8 +8,8 @@ from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--dataset-root", default="datasets/raspberry_pick")
-    parser.add_argument("--dataset-name", default="raspberry_pick")
+    parser.add_argument("--dataset-root", default="datasets/raspberry_pick_pid")
+    parser.add_argument("--dataset-name", default="raspberry_pick_pid")
     parser.add_argument("--output", default="training_data/raspberry_bc_dataset.npz")
     args = parser.parse_args()
 

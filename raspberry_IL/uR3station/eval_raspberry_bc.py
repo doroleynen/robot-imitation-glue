@@ -1,7 +1,7 @@
 import argparse
 
 from raspberry_IL.agents.bc_raspberry_agent import BCRaspberryAgent
-from raspberry_IL.uR3station.collect_raspberry_data import delta_to_abs_gripper
+from raspberry_IL.uR3station.collect_raspberry_data import apply_delta_to_commanded
 from raspberry_IL.uR3station.raspberry_pick_env import RaspberryPickEnv
 
 
@@ -24,8 +24,8 @@ def main():
             for _ in range(args.max_steps):
                 obs = env.get_observations()
                 action = agent.get_action(obs)
-                new_gripper = delta_to_abs_gripper(
-                    obs["gripper_state"],
+                new_gripper = apply_delta_to_commanded(
+                    float(obs["gripper_state"][0]),
                     action,
                     env.gripper.gripper_specs.min_width,
                     env.gripper.gripper_specs.max_width,

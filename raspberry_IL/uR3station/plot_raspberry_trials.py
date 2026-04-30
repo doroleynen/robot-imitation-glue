@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 from raspberry_IL.uR3station.raspberry_trial_utils import detect_detach, process_raspberry_signals
 
 NUM_SENSORS = 8
-WINDOW = 10
+WINDOW = 20
 BASE_SAMPLES = 100
 ZERO_DEADBAND = 8.0
 DETACH_DROP_THRESHOLD = 0.01
@@ -154,6 +154,10 @@ def plot_one_trial(trial_idx, files, output_dir):
         load_t = load_t[:cut_load]
         load_force = load_force[:cut_load]
 
+    safe_pose_event = next((r for r in event_rows if r["event"] == "safe_pose_reached"), None)
+    t_plot_start = safe_pose_event["t_pc"] if safe_pose_event is not None else None
+    t_plot_end = (detach_t + 0.5) if detach_t is not None else None
+
     fig, ax1 = plt.subplots(figsize=(14, 8))
     for i in range(NUM_SENSORS):
         ax1.plot(rasp_t, processed_sensors[i], label=f"S{i}")
@@ -163,6 +167,8 @@ def plot_one_trial(trial_idx, files, output_dir):
         ax1.axvline(detach_t, linestyle=":", linewidth=2)
         ax2.axvline(detach_t, linestyle=":", linewidth=2)
     draw_event_lines(ax1, event_rows)
+    if t_plot_start is not None:
+        ax1.set_xlim(left=t_plot_start, right=t_plot_end)
     lines1, labels1 = ax1.get_legend_handles_labels()
     lines2, labels2 = ax2.get_legend_handles_labels()
     ax1.legend(lines1 + lines2, labels1 + labels2, loc="upper right")
@@ -185,6 +191,8 @@ def plot_one_trial(trial_idx, files, output_dir):
             ax2.axvline(detach_t, linestyle=":", linewidth=2)
         draw_event_lines(ax1, event_rows)
         draw_event_lines(ax2, event_rows)
+        if t_plot_start is not None:
+            ax1.set_xlim(left=t_plot_start, right=t_plot_end)
         ax1.legend(loc="upper right")
         ax2.legend(loc="upper right")
         fig.tight_layout()
