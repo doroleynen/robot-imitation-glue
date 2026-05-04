@@ -41,6 +41,7 @@ class RaspberryPickEnv(BaseEnv):
         baud_rate: int = 115200,
         enable_anyskin: bool = True,
         anyskin_num_mags: int = 5,
+        anyskin_active_mags: Optional[List[int]] = None,
         anyskin_temp_filtered: bool     = True,
         anyskin_burst_mode: bool = True,
         anyskin_baudrate: int = 115200,
@@ -65,10 +66,11 @@ class RaspberryPickEnv(BaseEnv):
         self.baud_rate = baud_rate
         self.enable_anyskin = enable_anyskin
         self.anyskin_num_mags = anyskin_num_mags
+        self.anyskin_active_mags = anyskin_active_mags if anyskin_active_mags is not None else [0, 4]
         self.anyskin_temp_filtered = anyskin_temp_filtered
         self.anyskin_burst_mode = anyskin_burst_mode
         self.anyskin_baudrate = anyskin_baudrate
-        self.anyskin_fields = make_anyskin_fieldnames(anyskin_num_mags, anyskin_temp_filtered)
+        self.anyskin_fields = make_anyskin_fieldnames(self.anyskin_active_mags, anyskin_temp_filtered)
         self.schunk_usb_port = schunk_usb_port
         self.schunk_fingertip_gap = schunk_fingertip_gap
         self.fps = fps
@@ -80,7 +82,7 @@ class RaspberryPickEnv(BaseEnv):
         self.close_action_scale = close_action_scale
         self.grip_force_pct = grip_force_pct
         self.auto_start_pull_on_contact = auto_start_pull_on_contact
-        self.feature_cfg = feature_cfg or OnlineFeatureConfig(num_anyskin_mags=anyskin_num_mags)
+        self.feature_cfg = feature_cfg or OnlineFeatureConfig(num_anyskin_mags=anyskin_num_mags, anyskin_active_mags=self.anyskin_active_mags)
         self.processor = OnlineFeatureProcessor(self.feature_cfg)
         self.trial_log_root = Path(trial_log_root)
         self.trial_log_root.mkdir(parents=True, exist_ok=True)
@@ -88,7 +90,7 @@ class RaspberryPickEnv(BaseEnv):
 
         self.SAFE_Q = np.array([-1.95987827, -3.30249323, 0.78052837, -2.17082896, -1.58573944, -1.50839597 - np.pi/2], dtype=float)
         self.APPROACH_Q = np.array([-1.11505634, -3.45552363, 0.50535185, -1.8370768, -1.58581144, -1.5083831 - np.pi/2], dtype=float)
-        self.GRASP_Q = np.array([-1.10686428, -3.15876069,  0.25266153, -1.84043278, -1.57465107, -0.36700946 - np.pi], dtype=float)
+        self.GRASP_Q = np.array([-1.09986192, -3.23912825,  0.46463138, -1.99924578, -1.56958133, -3.52690298], dtype=float)
         self.PULL_Q = np.array([-1.10682089, -3.37033667,  0.25198061, -1.61171593, -1.5946315,  -0.29704267 - np.pi], dtype=float)
 
 
@@ -246,8 +248,12 @@ class RaspberryPickEnv(BaseEnv):
                 t_sensor, sample = self._anyskin_sensor.get_sample()
                 row = {"t_pc": time.perf_counter(), "t_sensor": float(t_sensor), "sample_idx": self._anyskin_sample_idx}
                 with self._lock:
-                    self._latest_anyskin = list(sample)
-                    for name, value in zip(self.anyskin_fields, sample):
+                    sample_list = list(sample)
+                    self._latest_anyskin = sample_list
+                    active_values = []
+                    for i in self.anyskin_active_mags:
+                        active_values.extend(sample_list[3 * i : 3 * i + 3])
+                    for name, value in zip(self.anyskin_fields, active_values):
                         row[name] = float(value)
                     self._anyskin_sample_idx += 1
                     if self.logging_active:

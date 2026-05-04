@@ -101,11 +101,13 @@ def read_anyskin_csv(filename):
 
 
 def process_anyskin_rows(rows, fieldnames):
-    mags = []
-    i = 0
-    while f"m{i}_x" in fieldnames and f"m{i}_y" in fieldnames and f"m{i}_z" in fieldnames:
-        mags.append(i)
-        i += 1
+    fieldset = set(fieldnames)
+    mags = sorted(
+        int(name[1:-2])
+        for name in fieldnames
+        if name.endswith("_x") and name.startswith("m") and name[1:-2].isdigit()
+        and f"m{name[1:-2]}_y" in fieldset and f"m{name[1:-2]}_z" in fieldset
+    )
     t = [row["t_pc"] for row in rows]
     mag_signals = {}
     slip_signals = {}

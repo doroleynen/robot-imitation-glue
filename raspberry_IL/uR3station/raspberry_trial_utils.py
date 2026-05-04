@@ -1,6 +1,6 @@
 import math
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Deque, List, Optional
 
 import numpy as np
@@ -30,13 +30,13 @@ def parse_loadcell_line(line: str):
     return float(line)
 
 
-def make_anyskin_fieldnames(num_mags: int, temp_filtered: bool = True):
+def make_anyskin_fieldnames(mag_indices: List[int], temp_filtered: bool = True):
     names = []
     if temp_filtered:
-        for i in range(num_mags):
+        for i in mag_indices:
             names.extend([f"m{i}_x", f"m{i}_y", f"m{i}_z"])
     else:
-        for i in range(num_mags):
+        for i in mag_indices:
             names.extend([f"m{i}_t", f"m{i}_x", f"m{i}_y", f"m{i}_z"])
     return names
 
@@ -92,11 +92,13 @@ def process_raspberry_signals(sensors, window, base_samples, zero_deadband=0.0):
 
 
 def detect_anyskin_mags(fieldnames):
-    mags = []
-    i = 0
-    while f"m{i}_x" in fieldnames and f"m{i}_y" in fieldnames and f"m{i}_z" in fieldnames:
-        mags.append(i)
-        i += 1
+    fieldset = set(fieldnames)
+    mags = sorted(
+        int(name[1:-2])
+        for name in fieldnames
+        if name.endswith("_x") and name.startswith("m") and name[1:-2].isdigit()
+        and f"m{name[1:-2]}_y" in fieldset and f"m{name[1:-2]}_z" in fieldset
+    )
     return mags
 
 
@@ -323,6 +325,7 @@ def detect_detach(load_t, load_force, drop_threshold=0.02, min_force=0.05):
 class OnlineFeatureConfig:
     num_raspberry_sensors: int = 8
     num_anyskin_mags: int = 5
+    anyskin_active_mags: List[int] = field(default_factory=lambda: [0, 4])
     raspberry_window: int = 2
     raspberry_base_samples: int = 10 #before 100
     raspberry_trend_horizon: int = 30  # steps over which to compute pressure trend
@@ -393,12 +396,13 @@ class OnlineFeatureProcessor:
         self.raspberry_baselines = [BaselineEstimator(self.cfg.raspberry_base_samples) for _ in range(self.cfg.num_raspberry_sensors)]
         self.raspberry_avgs = [RunningAverage(self.cfg.raspberry_window, 0.0) for _ in range(self.cfg.num_raspberry_sensors)]
         self.raspberry_trend_buf: Deque[np.ndarray] = deque(maxlen=self.cfg.raspberry_trend_horizon)
-        self.anyskin_mag_avgs = [RunningAverage(self.cfg.anyskin_smooth_window, 0.0) for _ in range(self.cfg.num_anyskin_mags)]
-        self.prev_anyskin_shear_raw = np.zeros(self.cfg.num_anyskin_mags, dtype=np.float32)
-        self.prev_anyskin_norm_raw = np.zeros(self.cfg.num_anyskin_mags, dtype=np.float32)
+        n_active = len(self.cfg.anyskin_active_mags)
+        self.anyskin_mag_avgs = [RunningAverage(self.cfg.anyskin_smooth_window, 0.0) for _ in range(n_active)]
+        self.prev_anyskin_shear_raw = np.zeros(n_active, dtype=np.float32)
+        self.prev_anyskin_norm_raw = np.zeros(n_active, dtype=np.float32)
         self.anyskin_pull_shear_baseline: Optional[np.ndarray] = None
-        self.anyskin_contact_z_avgs = [RunningAverage(self.cfg.anyskin_contact_z_window, 0.0) for _ in range(self.cfg.num_anyskin_mags)]
-        self.anyskin_contact_z_baselines = [BaselineEstimator(self.cfg.anyskin_contact_base_samples) for _ in range(self.cfg.num_anyskin_mags)]
+        self.anyskin_contact_z_avgs = [RunningAverage(self.cfg.anyskin_contact_z_window, 0.0) for _ in range(n_active)]
+        self.anyskin_contact_z_baselines = [BaselineEstimator(self.cfg.anyskin_contact_base_samples) for _ in range(n_active)]
         self.prev_load_force = 0.0
         self.running_peak_force = None
         self.detach_armed = False
@@ -451,24 +455,24 @@ class OnlineFeatureProcessor:
         if len(raw_anyskin) < 3 * self.cfg.num_anyskin_mags:
             raw_anyskin = list(raw_anyskin) + [0.0] * (3 * self.cfg.num_anyskin_mags - len(raw_anyskin))
 
-        for i in range(self.cfg.num_anyskin_mags):
+        for pos, i in enumerate(self.cfg.anyskin_active_mags):
             x, y, z = raw_anyskin[3 * i : 3 * i + 3]
             mag_raw = math.sqrt(x * x + y * y + z * z)
-            mag = self.anyskin_mag_avgs[i].update(mag_raw)
+            mag = self.anyskin_mag_avgs[pos].update(mag_raw)
             mags.append(mag)
             shear_raws.append(math.sqrt(x * x + y * y))
 
         shear_arr = np.asarray(shear_raws, dtype=np.float32)
 
         # Contact signal: max magnitude delta from per-episode baseline.
-        # Feed mags[i] directly (no extra smoothing) so the baseline doesn't inherit
+        # Feed mags[pos] directly (no extra smoothing) so the baseline doesn't inherit
         # ramp-up artefacts from a zero-prefilled RunningAverage.
         # Only check delta once the baseline is fully established (ready).
         contact_signal = 0.0
-        for i in range(self.cfg.num_anyskin_mags):
-            self.anyskin_contact_z_baselines[i].update(mags[i])
-            if self.anyskin_contact_z_baselines[i].ready:
-                mag_delta = abs(mags[i] - self.anyskin_contact_z_baselines[i].baseline)
+        for pos in range(len(self.cfg.anyskin_active_mags)):
+            self.anyskin_contact_z_baselines[pos].update(mags[pos])
+            if self.anyskin_contact_z_baselines[pos].ready:
+                mag_delta = abs(mags[pos] - self.anyskin_contact_z_baselines[pos].baseline)
                 if mag_delta > contact_signal:
                     contact_signal = mag_delta
 
@@ -476,7 +480,7 @@ class OnlineFeatureProcessor:
         # This detects sudden shear changes (real slip events) rather than
         # steady-state shear buildup from the pull motion.
         norm_raws = np.asarray(
-            [raw_anyskin[3 * i + 2] for i in range(self.cfg.num_anyskin_mags)], dtype=np.float32
+            [raw_anyskin[3 * i + 2] for i in self.cfg.anyskin_active_mags], dtype=np.float32
         )
         d_shear = shear_arr - self.prev_anyskin_shear_raw
         d_norm = norm_raws - self.prev_anyskin_norm_raw

@@ -42,7 +42,7 @@
 #         self.max_close_per_step = max_close_per_step
 
 #     def get_action(self, observation):
-#         slip = observation.get("anyskin_slip", np.zeros((5,), dtype=np.float32))
+#         slip = observation.get("anyskin_slip", np.zeros((2,), dtype=np.float32))
 #         phase = observation.get("phase", np.zeros((3,), dtype=np.float32))
 
 #         pull_started = bool(phase[1] > 0.5)
@@ -92,7 +92,7 @@ class HeuristicRaspberryAgent(BaseAgent):
         self._slip_cooldown = 0
 
     def get_action(self, observation):
-        slip = observation.get("anyskin_slip", np.zeros((5,), dtype=np.float32))
+        slip = observation.get("anyskin_slip", np.zeros((2,), dtype=np.float32))
         phase = observation.get("phase", np.zeros((3,), dtype=np.float32))
         gripper_width = float(observation.get("gripper_state", np.array([1.0]))[0])
 

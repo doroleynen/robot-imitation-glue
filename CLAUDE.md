@@ -66,7 +66,7 @@ eval_raspberry_bc.py         →  runs policy on hardware
 
 - `RaspberryPickEnv` (`uR3station/raspberry_pick_env.py`): the arm motion is **scripted** (linear interpolation GRASP_Q → PULL_Q via `_advance_pull_step`); only the gripper width is policy-controlled. `act()` is called each step and is **blocking** (two sequential `.wait()` calls), so effective Hz will be lower than the 10 Hz target once pulling starts.
 
-- Observations (`get_observations`) return a dict with keys: `state` (29-dim concatenation), `gripper_state`, `raspberry_state`, `raspberry_diff`, `anyskin_mag`, `anyskin_slip`, `loadcell_state`, `phase`. The BC policy only reads `state`.
+- Observations (`get_observations`) return a dict with keys: `state` (23-dim concatenation: 8 rasp + 8 rasp_diff + 2 anyskin_mag + 2 anyskin_slip + 2 loadcell + 1 gripper), `gripper_state`, `raspberry_state`, `raspberry_diff`, `anyskin_mag`, `anyskin_slip`, `loadcell_state`, `phase`. Only AnySkin magnetometers m0 and m4 are active (`anyskin_active_mags=[0, 4]`); m1/m2/m3 are fried. The BC policy only reads `state`.
 
 - `OnlineFeatureProcessor` (`raspberry_trial_utils.py`) computes running baselines, moving averages, slip proxies, and detach detection online. It must be `.reset()` between episodes.
 
