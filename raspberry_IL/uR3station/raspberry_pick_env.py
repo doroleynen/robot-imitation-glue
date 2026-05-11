@@ -35,9 +35,9 @@ class RaspberryPickEnv(BaseEnv):
     def __init__(
         self,
         robot_ip: str = "10.42.0.163",
-        raspberry_port: str = "/dev/ttyACM2",
+        raspberry_port: str = "/dev/ttyACM3",
         loadcell_port: str = "/dev/ttyACM1",
-        anyskin_port: str = "/dev/ttyACM3",
+        anyskin_port: str = "/dev/ttyACM2",
         baud_rate: int = 115200,
         enable_anyskin: bool = True,
         anyskin_num_mags: int = 5,
@@ -57,7 +57,8 @@ class RaspberryPickEnv(BaseEnv):
         auto_start_pull_on_contact: bool = True,
         trial_log_root: str = "trial_logs_policy",
         feature_cfg: Optional[OnlineFeatureConfig] = None,
-        grasp_threshold = 600
+        grasp_threshold = 600,
+        record_joints: bool = False,
     ):
         self.robot_ip = robot_ip
         self.raspberry_port = raspberry_port
@@ -87,10 +88,11 @@ class RaspberryPickEnv(BaseEnv):
         self.trial_log_root = Path(trial_log_root)
         self.trial_log_root.mkdir(parents=True, exist_ok=True)
         self.grasp_threshold = grasp_threshold
+        self.record_joints = record_joints
 
         self.SAFE_Q = np.array([-1.95987827, -3.30249323, 0.78052837, -2.17082896, -1.58573944, -1.50839597 - np.pi/2], dtype=float)
         self.APPROACH_Q = np.array([-1.11505634, -3.45552363, 0.50535185, -1.8370768, -1.58581144, -1.5083831 - np.pi/2], dtype=float)
-        self.GRASP_Q = np.array([-1.09986192, -3.23912825,  0.46463138, -1.99924578, -1.56958133, -3.52690298], dtype=float)
+        self.GRASP_Q = np.array([-1.09991771, -3.24529614,  0.46873266, -1.99718489, -1.5696891,  -3.52688653], dtype=float)
         self.PULL_Q = np.array([-1.10682089, -3.37033667,  0.25198061, -1.61171593, -1.5946315,  -0.29704267 - np.pi], dtype=float)
 
 
@@ -367,8 +369,16 @@ class RaspberryPickEnv(BaseEnv):
             self.episode_done = True
             self.log_event("detach_detected", {"load_force": raw["force"], "max_slip": max_slip})
 
+        state_policy = np.concatenate([
+            processed["raspberry_state"],
+            processed["raspberry_diff"],
+            processed["loadcell_state"],
+        ]).astype(np.float32)
+
         obs = {
-            "state": state,
+            "observation.state": state,
+            "observation.state_policy": state_policy,
+            "observation.environment_state": np.zeros((1,), dtype=np.float32),
             "gripper_state": gripper_state,
             "raspberry_state": processed["raspberry_state"],
             "raspberry_diff": processed["raspberry_diff"],
@@ -381,6 +391,8 @@ class RaspberryPickEnv(BaseEnv):
                 1.0 if self.detach_detected else 0.0,
             ], dtype=np.float32),
         }
+        if self.record_joints:
+            obs["joint_configuration"] = np.array(self.robot.get_joint_configuration(), dtype=np.float32)
         self.last_obs = obs
         return obs
 

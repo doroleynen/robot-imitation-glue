@@ -34,7 +34,7 @@ class BCRaspberryAgent(BaseAgent):
         self.state_std = checkpoint["state_std"]
 
     def get_action(self, observation):
-        state = observation["state"].astype(np.float32)
+        state = observation["observation.state"].astype(np.float32)
         state_norm = (state - self.state_mean) / np.maximum(self.state_std, 1e-6)
         with torch.no_grad():
             action = self.model(torch.from_numpy(state_norm).unsqueeze(0)).squeeze(0).numpy()

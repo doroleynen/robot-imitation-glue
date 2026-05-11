@@ -24,7 +24,7 @@ def main():
     parser.add_argument("--fps", type=int, default=10)
     parser.add_argument("--episodes", type=int, default=10)
     parser.add_argument("--max-steps", type=int, default=120)
-    parser.add_argument("--mode", choices=["heuristic", "bc", "pid"], default="heuristic")
+    parser.add_argument("--mode", choices=["heuristic", "bc", "pid", "pid_with_joints"], default="heuristic")
     parser.add_argument("--checkpoint", default=None)
     parser.add_argument("--trial-log-dir", default=None)
     parser.add_argument("--no-anyskin", action="store_true", help="Disable AnySkin sensor (run without it plugged in)")
@@ -45,6 +45,10 @@ def main():
         agent = PIDRaspberryAgent()
         feature_cfg = OnlineFeatureConfig(raspberry_contact_threshold=agent.raspberry_contact_threshold)
         env = RaspberryPickEnv(trial_log_root=args.trial_log_dir, fps=args.fps, feature_cfg=feature_cfg, enable_anyskin=enable_anyskin)
+    elif args.mode == "pid_with_joints":
+        agent = PIDRaspberryAgent()
+        feature_cfg = OnlineFeatureConfig(raspberry_contact_threshold=agent.raspberry_contact_threshold)
+        env = RaspberryPickEnv(trial_log_root=args.trial_log_dir, fps=args.fps, feature_cfg=feature_cfg, enable_anyskin=enable_anyskin, record_joints=True)
     else:
         if args.checkpoint is None:
             raise ValueError("--checkpoint is required in bc mode")
