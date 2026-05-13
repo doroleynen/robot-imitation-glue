@@ -75,3 +75,77 @@ eval_raspberry_bc.py         →  runs policy on hardware
 - `LeRobotDatasetRecorder` (`dataset_recorder.py`) wraps the vendored LeRobot `add_frame`/`save_episode` API. Requires `weights_only=False` in `torch.load` when loading checkpoints (PyTorch ≥ 2.6 broke the default).
 
 - The heuristic agent (`agents/heuristic_raspberry_agent.py`) closes by `close_delta` each step and applies additional closing proportional to slip (`slip_gain < 0`).
+
+## LeRobot compatibility patches (datasets ≥ 4.x + lerobot 0.1.0)
+
+The vendored `lerobot/` submodule requires several patches to work with the newer HuggingFace `datasets` library (≥ 4.x), which returns Arrow `Column` objects instead of lists of tensors. Apply these manually on any new machine after installing the submodule.
+
+**`lerobot/lerobot/common/datasets/lerobot_dataset.py`**
+
+1. `torch.stack` → `np.array` for timestamp/episode-index checks (line ~508):
+   ```python
+   # Before:
+   timestamps = torch.stack(self.hf_dataset["timestamp"]).numpy()
+   episode_indices = torch.stack(self.hf_dataset["episode_index"]).numpy()
+   # After:
+   timestamps = np.array(self.hf_dataset["timestamp"])
+   episode_indices = np.array(self.hf_dataset["episode_index"])
+   ```
+
+2. `torch.stack` → `torch.tensor(np.array(...))` for video timestamp query (line ~689):
+   ```python
+   # Before:
+   query_timestamps[key] = torch.stack(timestamps).tolist()
+   # After:
+   query_timestamps[key] = torch.tensor(np.array(timestamps)).tolist()
+   ```
+
+3. `_query_hf_dataset`: reshape tensors to `(n_steps, *feature_shape)` to handle shape-`[1]` features being returned as scalars (line ~695):
+   ```python
+   # Before:
+   return {
+       key: torch.stack(self.hf_dataset.select(q_idx)[key])
+       for key, q_idx in query_indices.items()
+       if key not in self.meta.video_keys
+   }
+   # After:
+   result = {}
+   for key, q_idx in query_indices.items():
+       if key in self.meta.video_keys:
+           continue
+       t = torch.tensor(np.array(self.hf_dataset.select(q_idx)[key]))
+       feature_shape = tuple(self.meta.features[key]["shape"])
+       expected = (len(q_idx),) + feature_shape
+       if t.shape != expected:
+           t = t.reshape(expected)
+       result[key] = t
+   return result
+   ```
+
+**`lerobot/lerobot/common/policies/diffusion/configuration_diffusion.py`**
+
+4. Guard image-consistency check in `validate_features` so it doesn't crash on image-free (state-only) datasets (line ~220):
+   ```python
+   # Before:
+   first_image_key, first_image_ft = next(iter(self.image_features.items()))
+   for key, image_ft in self.image_features.items():
+       ...
+   # After:
+   if len(self.image_features) > 0:
+       first_image_key, first_image_ft = next(iter(self.image_features.items()))
+       for key, image_ft in self.image_features.items():
+           ...
+   ```
+
+**`airo-mono-env.yaml`**
+
+5. Remove the `robot-imitation-glue==0.0.1` line from the pip section — this package is local-only and must be installed separately via `pip install -e .` after creating the environment.
+
+**Checkpoint `config.json` files** (run once after training)
+
+6. The lerobot trainer does not save a `"type"` field in `config.json`, but draccus needs it to load the config. Patch every checkpoint:
+   ```bash
+   for f in outputs/train/*/checkpoints/*/pretrained_model/config.json; do
+     python3 -c "import json; cfg=json.load(open('$f')); cfg['type']='diffusion'; json.dump(cfg, open('$f','w'), indent=2)"
+   done
+   ```

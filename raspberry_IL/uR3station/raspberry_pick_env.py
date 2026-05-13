@@ -34,10 +34,10 @@ class RaspberryPickEnv(BaseEnv):
 
     def __init__(
         self,
-        robot_ip: str = "10.42.0.163",
-        raspberry_port: str = "/dev/ttyACM3",
-        loadcell_port: str = "/dev/ttyACM1",
-        anyskin_port: str = "/dev/ttyACM2",
+        robot_ip: str = "192.168.0.42",
+        raspberry_port: str = "/dev/ttyACM2",
+        loadcell_port: str = "/dev/ttyACM3",
+        anyskin_port: str = "/dev/ttyACM1",
         baud_rate: int = 115200,
         enable_anyskin: bool = True,
         anyskin_num_mags: int = 5,
@@ -286,6 +286,18 @@ class RaspberryPickEnv(BaseEnv):
     def _move_arm_q(self, q_target: np.ndarray):
         self.robot.move_to_joint_configuration(q_target, joint_speed=self.arm_joint_speed).wait()
 
+    def _move_arm_q_verified(self, q_target: np.ndarray, tol: float = 0.01, max_retries: int = 3):
+        """Move to q_target and retry if the actual joint config is outside tolerance."""
+        for attempt in range(max_retries):
+            self._move_arm_q(q_target)
+            q_actual = np.array(self.robot.get_joint_configuration())
+            error = float(np.max(np.abs(q_actual - q_target)))
+            if error <= tol:
+                return
+            print(f"[Pose check] Joint error {error:.4f} rad > tol {tol} rad, correcting "
+                  f"(attempt {attempt + 1}/{max_retries})...")
+        print(f"[Pose check] Warning: still {error:.4f} rad off after {max_retries} attempts, continuing.")
+
     def reset(self, trial_idx: Optional[int] = None, skip_motion: bool = False):
         if trial_idx is not None:
             self.current_trial_idx = int(trial_idx)
@@ -420,7 +432,7 @@ class RaspberryPickEnv(BaseEnv):
             self._scripted_phase = "grasp"
             return
         if self._scripted_phase == "grasp":
-            self._move_arm_q(self.GRASP_Q)
+            self._move_arm_q_verified(self.GRASP_Q)
             self.log_event("grasp_pose_reached")
             self._scripted_phase = "done"
             return
