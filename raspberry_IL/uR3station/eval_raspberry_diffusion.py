@@ -10,10 +10,13 @@ from raspberry_IL.uR3station.raspberry_pick_env import RaspberryPickEnv
 from raspberry_IL.uR3station.raspberry_trial_utils import OnlineFeatureConfig
 
 
-def make_obs_preprocessor(device):
+def make_obs_preprocessor(device, include_joints=False):
     def preprocess(obs):
+        state = obs["observation.state_policy"]
+        if include_joints:
+            state = np.concatenate([state, obs["joint_configuration"]])
         return {
-            "observation.state": torch.from_numpy(obs["observation.state_policy"]).float().unsqueeze(0).to(device),
+            "observation.state": torch.from_numpy(state).float().unsqueeze(0).to(device),
             "observation.environment_state": torch.from_numpy(obs["observation.environment_state"]).float().unsqueeze(0).to(device),
         }
     return preprocess
@@ -29,6 +32,8 @@ def main():
     parser.add_argument("--fps", type=int, default=10)
     parser.add_argument("--trial-log-dir", default="trial_logs_diffusion_eval")
     parser.add_argument("--device", default="cpu")
+    parser.add_argument("--include-joints", action="store_true",
+                        help="Concatenate joint_configuration into observation.state (use with joints-trained model)")
     parser.add_argument("--raspberry-contact-threshold", type=float, default=2000.0,
                         help="Max raspberry pressure to trigger pull, same as PID agent (default 2000)")
     args = parser.parse_args()
@@ -36,10 +41,11 @@ def main():
     device = args.device
     policy = make_lerobot_policy(args.checkpoint, args.dataset_root)
     policy = policy.to(device)
-    agent = LerobotAgent(policy, device, make_obs_preprocessor(device))
+    agent = LerobotAgent(policy, device, make_obs_preprocessor(device, include_joints=args.include_joints))
 
     feature_cfg = OnlineFeatureConfig(raspberry_contact_threshold=args.raspberry_contact_threshold)
-    env = RaspberryPickEnv(trial_log_root=args.trial_log_dir, fps=args.fps, feature_cfg=feature_cfg)
+    env = RaspberryPickEnv(trial_log_root=args.trial_log_dir, fps=args.fps, feature_cfg=feature_cfg,
+                           record_joints=args.include_joints)
     period = 1.0 / args.fps
 
     try:
