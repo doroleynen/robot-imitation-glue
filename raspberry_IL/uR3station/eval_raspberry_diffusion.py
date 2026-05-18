@@ -7,6 +7,7 @@ import torch
 from robot_imitation_glue.agents.lerobot_agent import LerobotAgent, make_lerobot_policy
 from raspberry_IL.uR3station.collect_raspberry_data import apply_delta_to_commanded
 from raspberry_IL.uR3station.raspberry_pick_env import RaspberryPickEnv
+from raspberry_IL.uR3station.raspberry_trial_utils import OnlineFeatureConfig
 
 
 def make_obs_preprocessor(device):
@@ -28,6 +29,8 @@ def main():
     parser.add_argument("--fps", type=int, default=10)
     parser.add_argument("--trial-log-dir", default="trial_logs_diffusion_eval")
     parser.add_argument("--device", default="cpu")
+    parser.add_argument("--raspberry-contact-threshold", type=float, default=2000.0,
+                        help="Max raspberry pressure to trigger pull, same as PID agent (default 2000)")
     args = parser.parse_args()
 
     device = args.device
@@ -35,7 +38,8 @@ def main():
     policy = policy.to(device)
     agent = LerobotAgent(policy, device, make_obs_preprocessor(device))
 
-    env = RaspberryPickEnv(trial_log_root=args.trial_log_dir, fps=args.fps)
+    feature_cfg = OnlineFeatureConfig(raspberry_contact_threshold=args.raspberry_contact_threshold)
+    env = RaspberryPickEnv(trial_log_root=args.trial_log_dir, fps=args.fps, feature_cfg=feature_cfg)
     period = 1.0 / args.fps
 
     try:

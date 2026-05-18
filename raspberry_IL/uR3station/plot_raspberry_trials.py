@@ -4,6 +4,8 @@ import math
 import os
 import re
 
+import matplotlib
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from raspberry_IL.uR3station.raspberry_trial_utils import detect_detach, process_raspberry_signals

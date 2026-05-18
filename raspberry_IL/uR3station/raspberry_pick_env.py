@@ -12,6 +12,20 @@ from airo_robots.manipulators.hardware.ur_rtde import URrtde
 from airo_robots.manipulators.position_manipulator import ManipulatorSpecs
 from anyskin import AnySkinBase
 
+
+class _AnySkinFixed(AnySkinBase):
+    """AnySkinBase with timeout set before _initialize() runs.
+
+    bkstools patches serial.Serial.read globally and requires self.timeout != None.
+    AnySkinBase opens the port with timeout=None, so _initialize() (which calls
+    get_sample() -> read()) crashes on this machine.  Setting timeout=2.0 first
+    fixes the crash without affecting sensor behaviour.
+    """
+    def _initialize(self):
+        self.timeout = 2.0
+        super()._initialize()
+
+
 from robot_imitation_glue.base import BaseEnv
 from raspberry_IL.uR3station.raspberry_trial_utils import (
     OnlineFeatureConfig,
@@ -36,8 +50,8 @@ class RaspberryPickEnv(BaseEnv):
         self,
         robot_ip: str = "192.168.0.42",
         raspberry_port: str = "/dev/ttyACM2",
-        loadcell_port: str = "/dev/ttyACM3",
-        anyskin_port: str = "/dev/ttyACM1",
+        loadcell_port: str = "/dev/ttyACM0",
+        anyskin_port: str = "/dev/ttyACM3",
         baud_rate: int = 115200,
         enable_anyskin: bool = True,
         anyskin_num_mags: int = 5,
@@ -166,7 +180,7 @@ class RaspberryPickEnv(BaseEnv):
         self._raspberry_serial = serial.Serial(self.raspberry_port, self.baud_rate, timeout=1)
         self._loadcell_serial = serial.Serial(self.loadcell_port, self.baud_rate, timeout=1)
         if self.enable_anyskin:
-            self._anyskin_sensor = AnySkinBase(
+            self._anyskin_sensor = _AnySkinFixed(
                 num_mags=self.anyskin_num_mags,
                 port=self.anyskin_port,
                 baudrate=self.anyskin_baudrate,

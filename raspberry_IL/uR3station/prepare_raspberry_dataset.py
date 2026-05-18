@@ -54,20 +54,32 @@ def to_npz(dataset_root: str, dataset_name: str, output: str):
     print(f"Saved {len(X)} samples to {out}")
 
 
-def to_diffusion_dataset(dataset_root: str, dataset_name: str, output_root: str):
+def to_diffusion_dataset(dataset_root: str, dataset_name: str, output_root: str,
+                         include_joints: bool = False):
     """Write a training dataset for the diffusion policy.
 
-    Replaces observation.state with the 18-dim observation.state_policy (rasp + loadcell)
-    and drops observation.state_policy so the policy only sees the 18-dim state.
+    Replaces observation.state with observation.state_policy (rasp + loadcell, 18-dim).
+    If include_joints=True, also concatenates joint_configuration (6-dim) → 24-dim state.
     """
     def transform_fn(frame):
-        frame["observation.state"] = frame.pop("observation.state_policy")
+        state = frame.pop("observation.state_policy")
+        if include_joints:
+            state = np.concatenate([state, frame["joint_configuration"]])
+        frame["observation.state"] = state
         return frame
 
     def transform_features_fn(features):
-        features["observation.state"] = features.pop("observation.state_policy")
+        state_ft = features.pop("observation.state_policy")
+        if include_joints:
+            joint_dim = features["joint_configuration"]["shape"][0]
+            state_dim = state_ft["shape"][0] + joint_dim
+            state_ft = {**state_ft, "shape": (state_dim,)}
+        else:
+            state_ft = {**state_ft, "shape": tuple(state_ft["shape"])}
+        features["observation.state"] = state_ft
         return features
 
+    extra_drop = [] if include_joints else ["joint_configuration"]
     transform_dataset(
         repo_id=dataset_name,
         root_dir=dataset_root,
@@ -76,10 +88,11 @@ def to_diffusion_dataset(dataset_root: str, dataset_name: str, output_root: str)
         transform_fn=transform_fn,
         transform_features_fn=transform_features_fn,
         features_to_drop=["gripper_state", "raspberry_state", "raspberry_diff",
-                          "anyskin_mag", "anyskin_slip", "loadcell_state", "phase"],
+                          "anyskin_mag", "anyskin_slip", "loadcell_state", "phase"] + extra_drop,
         use_videos=False,
     )
-    print(f"Saved diffusion training dataset to {output_root}")
+    suffix = " (with joints)" if include_joints else ""
+    print(f"Saved diffusion training dataset{suffix} to {output_root}")
 
 
 def main():
@@ -90,6 +103,7 @@ def main():
     parser.add_argument("--drop-episodes", default=None, help="Episodes to drop before converting, e.g. '3,7,10-15'")
     parser.add_argument("--output-root", default=None, help="Where to save the cleaned dataset (required with --drop-episodes)")
     parser.add_argument("--to-diffusion-dataset", action="store_true", help="Prepare dataset for diffusion policy training")
+    parser.add_argument("--include-joints", action="store_true", help="Concatenate joint_configuration into observation.state")
     args = parser.parse_args()
 
     if args.drop_episodes is not None:
@@ -106,7 +120,8 @@ def main():
     elif args.to_diffusion_dataset:
         if args.output_root is None:
             parser.error("--output-root is required when using --to-diffusion-dataset")
-        to_diffusion_dataset(args.dataset_root, args.dataset_name, args.output_root)
+        to_diffusion_dataset(args.dataset_root, args.dataset_name, args.output_root,
+                             include_joints=args.include_joints)
     else:
         to_npz(args.dataset_root, args.dataset_name, args.output)
 
