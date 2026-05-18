@@ -348,7 +348,7 @@ class OnlineFeatureConfig:
     # NOTE: these are called at control-loop rate (~10 Hz), not sensor rate
     anyskin_contact_z_window: int = 3      # running average window (~0.3s at 10Hz)
     anyskin_contact_base_samples: int = 15  # samples to establish magnitude baseline (~1.5s at 10Hz)
-    anyskin_contact_threshold: float = 25.0  # magnitude delta threshold; noise floor ~6 (3-sample smoothed), contact ~50-100+
+    anyskin_contact_threshold: float = 15.0  # magnitude delta threshold; noise floor ~6 (3-sample smoothed), contact ~50-100+
     raspberry_contact_threshold: float = 0.0  # if > 0, also trigger contact when max raspberry_state exceeds this
 
 

@@ -28,6 +28,10 @@ def main():
     parser.add_argument("--checkpoint", default=None)
     parser.add_argument("--trial-log-dir", default=None)
     parser.add_argument("--no-anyskin", action="store_true", help="Disable AnySkin sensor (run without it plugged in)")
+    parser.add_argument("--slip-threshold", type=float, default=10.0,
+                        help="Heuristic: slip magnitude that triggers tightening (default 10)")
+    parser.add_argument("--slip-close-step", type=float, default=0.0002,
+                        help="Heuristic: gripper close amount per slip event, positive value (default 0.0002)")
     args = parser.parse_args()
 
     if args.dataset_name is None:
@@ -39,7 +43,10 @@ def main():
 
     enable_anyskin = not args.no_anyskin
     if args.mode == "heuristic":
-        agent = HeuristicRaspberryAgent()
+        agent = HeuristicRaspberryAgent(
+            slip_threshold=args.slip_threshold,
+            slip_close_step=-abs(args.slip_close_step),
+        )
         env = RaspberryPickEnv(trial_log_root=args.trial_log_dir, fps=args.fps, enable_anyskin=enable_anyskin)
     elif args.mode == "pid":
         agent = PIDRaspberryAgent()

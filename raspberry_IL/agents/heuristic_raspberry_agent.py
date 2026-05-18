@@ -73,23 +73,29 @@ class HeuristicRaspberryAgent(BaseAgent):
 
     def __init__(
         self,
-        close_delta_pre_contact: float = -0.0005,
+        close_delta_fast: float = -0.0004,
+        close_delta_slow: float = -0.0001,
+        fast_close_steps: int = 5,
         slip_threshold: float = 10,
         slip_close_step: float = -0.0002,
         max_close_per_step: float = -0.002,
         min_gripper_width: float = 0.025,
         slip_cooldown_steps: int = 5,
     ):
-        self.close_delta_pre_contact = close_delta_pre_contact
+        self.close_delta_fast = close_delta_fast
+        self.close_delta_slow = close_delta_slow
+        self.fast_close_steps = fast_close_steps
         self.slip_threshold = slip_threshold
         self.slip_close_step = slip_close_step
         self.max_close_per_step = max_close_per_step
         self.min_gripper_width = min_gripper_width
         self.slip_cooldown_steps = slip_cooldown_steps
         self._slip_cooldown = 0
+        self._pre_contact_steps = 0
 
     def reset(self):
         self._slip_cooldown = 0
+        self._pre_contact_steps = 0
 
     def get_action(self, observation):
         slip = observation.get("anyskin_slip", np.zeros((2,), dtype=np.float32))
@@ -112,7 +118,8 @@ class HeuristicRaspberryAgent(BaseAgent):
             self._slip_cooldown -= 1
 
         if not contact_started:
-            action = self.close_delta_pre_contact
+            self._pre_contact_steps += 1
+            action = self.close_delta_fast if self._pre_contact_steps <= self.fast_close_steps else self.close_delta_slow
         elif not pull_started:
             action = 0.0
         elif pull_started:

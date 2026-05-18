@@ -17,6 +17,7 @@ from pathlib import Path
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+matplotlib.rcParams.update({"font.size": 14})
 import numpy as np
 import torch
 
@@ -117,7 +118,7 @@ def run_checkpoint(checkpoint_path, dataset, hf, episode_indices, unique_eps, de
         ax.axhline(0, color="k", linewidth=0.5, linestyle="--")
         ax.set_title(f"Episode {ep_idx}")
         ax.set_ylabel("gripper delta")
-        ax.legend(fontsize=8)
+        ax.legend(fontsize=8, loc="upper left")
 
     axes[-1][0].set_xlabel("step")
     plt.tight_layout()

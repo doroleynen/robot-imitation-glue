@@ -7,6 +7,7 @@ import re
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+matplotlib.rcParams.update({"font.size": 14})
 
 from raspberry_IL.uR3station.raspberry_trial_utils import detect_detach, process_raspberry_signals
 
@@ -132,10 +133,17 @@ def process_anyskin_rows(rows, fieldnames):
 def draw_event_lines(ax, event_rows):
     y0, y1 = ax.get_ylim()
     y_text = y1 - 0.05 * (y1 - y0)
+    prev_t = None
+    nudge = 0
     for row in event_rows:
         t_evt = row["t_pc"]
+        if prev_t is not None and abs(t_evt - prev_t) < 0.5:
+            nudge += 0.35
+        else:
+            nudge = 0
         ax.axvline(t_evt, alpha=0.35)
-        ax.text(t_evt, y_text, row["event"], rotation=90, verticalalignment="top", fontsize=8)
+        ax.text(t_evt + nudge, y_text, row["event"], rotation=90, verticalalignment="top", fontsize=13)
+        prev_t = t_evt
 
 
 def plot_one_trial(trial_idx, files, output_dir):
@@ -163,8 +171,9 @@ def plot_one_trial(trial_idx, files, output_dir):
     t_plot_end = (detach_t + 0.5) if detach_t is not None else None
 
     fig, ax1 = plt.subplots(figsize=(14, 8))
+    LEGEND_SENSORS = {1, 3}
     for i in range(NUM_SENSORS):
-        ax1.plot(rasp_t, processed_sensors[i], label=f"S{i}")
+        ax1.plot(rasp_t, processed_sensors[i], label=f"S{i}" if i in LEGEND_SENSORS else "_")
     ax2 = ax1.twinx()
     ax2.plot(load_t, load_force, linestyle="--", label="Load cell force")
     if detach_t is not None:
@@ -175,7 +184,7 @@ def plot_one_trial(trial_idx, files, output_dir):
         ax1.set_xlim(left=t_plot_start, right=t_plot_end)
     lines1, labels1 = ax1.get_legend_handles_labels()
     lines2, labels2 = ax2.get_legend_handles_labels()
-    ax1.legend(lines1 + lines2, labels1 + labels2, loc="upper right")
+    ax1.legend(lines1 + lines2, labels1 + labels2, loc="upper left")
     ax1.set_title(f"Trial {trial_idx:03d}: processed raspberry + load")
     fig.tight_layout()
     fig.savefig(os.path.join(output_dir, f"trial_{trial_idx:03d}_overview.png"), dpi=300, bbox_inches="tight")
@@ -197,8 +206,8 @@ def plot_one_trial(trial_idx, files, output_dir):
         draw_event_lines(ax2, event_rows)
         if t_plot_start is not None:
             ax1.set_xlim(left=t_plot_start, right=t_plot_end)
-        ax1.legend(loc="upper right")
-        ax2.legend(loc="upper right")
+        ax1.legend(loc="upper left")
+        ax2.legend(loc="upper left")
         fig.tight_layout()
         fig.savefig(os.path.join(output_dir, f"trial_{trial_idx:03d}_anyskin.png"), dpi=300, bbox_inches="tight")
         plt.close(fig)
