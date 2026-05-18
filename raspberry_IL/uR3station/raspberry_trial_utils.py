@@ -332,9 +332,9 @@ class OnlineFeatureConfig:
     zero_deadband: float = 8.0
     anyskin_smooth_window: int = 1
     anyskin_slip_threshold: float = 40.0  # raw step-to-step magnitude diff; noise floor max ~28, genuine slip up to ~174
-    detach_drop_threshold: float = 0.01
-    detach_min_force: float = 0.05
-    detach_count_required: int = 1
+    detach_drop_threshold: float = 0.05
+    detach_min_force: float = 0.1
+    detach_count_required: int = 4
         # Guard against division by zero in shear/normal ratio
     anyskin_ratio_epsilon: float = 1e-6
 
