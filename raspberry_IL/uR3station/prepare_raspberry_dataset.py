@@ -95,6 +95,45 @@ def to_diffusion_dataset(dataset_root: str, dataset_name: str, output_root: str,
     print(f"Saved diffusion training dataset{suffix} to {output_root}")
 
 
+def to_student_dataset(dataset_root: str, dataset_name: str, output_root: str):
+    """Write a training dataset for the external-only student policy.
+
+    Replaces observation.state with the deployable student observation:
+        anyskin_mag (2) + anyskin_slip (2) + gripper_state (1) + phase (3) = 8-dim
+
+    All privileged features (raspberry_state, raspberry_diff, loadcell_state) are
+    kept in the dataset for evaluation but are NOT part of observation.state.
+    """
+    STUDENT_OBS_DIM = 14  # anyskin_mag(2) + anyskin_slip(2) + gripper_state(1) + phase(3) + joints(6)
+
+    def transform_fn(frame):
+        state = np.concatenate([
+            frame["anyskin_mag"],
+            frame["anyskin_slip"],
+            frame["gripper_state"],
+            frame["phase"],
+            frame["joint_configuration"],
+        ]).astype(np.float32)
+        frame["observation.state"] = state
+        return frame
+
+    def transform_features_fn(features):
+        features["observation.state"] = {"dtype": "float32", "shape": (STUDENT_OBS_DIM,), "names": None}
+        return features
+
+    transform_dataset(
+        repo_id=dataset_name,
+        root_dir=dataset_root,
+        new_root_dir=output_root,
+        new_repo_id=dataset_name,
+        transform_fn=transform_fn,
+        transform_features_fn=transform_features_fn,
+        features_to_drop=["observation.state_policy"],
+        use_videos=False,
+    )
+    print(f"Saved student training dataset to {output_root}")
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset-root", default="datasets/raspberry_pick_pid")
@@ -103,6 +142,7 @@ def main():
     parser.add_argument("--drop-episodes", default=None, help="Episodes to drop before converting, e.g. '3,7,10-15'")
     parser.add_argument("--output-root", default=None, help="Where to save the cleaned dataset (required with --drop-episodes)")
     parser.add_argument("--to-diffusion-dataset", action="store_true", help="Prepare dataset for diffusion policy training")
+    parser.add_argument("--to-student-dataset", action="store_true", help="Prepare external-only student dataset (anyskin+gripper+phase)")
     parser.add_argument("--include-joints", action="store_true", help="Concatenate joint_configuration into observation.state")
     args = parser.parse_args()
 
@@ -122,6 +162,10 @@ def main():
             parser.error("--output-root is required when using --to-diffusion-dataset")
         to_diffusion_dataset(args.dataset_root, args.dataset_name, args.output_root,
                              include_joints=args.include_joints)
+    elif args.to_student_dataset:
+        if args.output_root is None:
+            parser.error("--output-root is required when using --to-student-dataset")
+        to_student_dataset(args.dataset_root, args.dataset_name, args.output_root)
     else:
         to_npz(args.dataset_root, args.dataset_name, args.output)
 

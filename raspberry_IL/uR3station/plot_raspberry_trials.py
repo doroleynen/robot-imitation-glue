@@ -199,6 +199,7 @@ def plot_one_trial(trial_idx, files, output_dir):
         for i in mags:
             ax1.plot(t, mag_signals[i], label=f"m{i}_mag")
             ax2.plot(t, slip_signals[i], label=f"m{i}_slip")
+        ax2.axhline(8, color="crimson", linestyle="--", linewidth=1.8, alpha=0.8, label="slip threshold")
         if detach_t is not None:
             ax1.axvline(detach_t, linestyle=":", linewidth=2)
             ax2.axvline(detach_t, linestyle=":", linewidth=2)

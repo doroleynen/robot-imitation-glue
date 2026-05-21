@@ -10,11 +10,18 @@ from raspberry_IL.uR3station.raspberry_pick_env import RaspberryPickEnv
 from raspberry_IL.uR3station.raspberry_trial_utils import OnlineFeatureConfig
 
 
-def make_obs_preprocessor(device, include_joints=False):
+def make_obs_preprocessor(device, include_joints=False, student_obs=False):
     def preprocess(obs):
-        state = obs["observation.state_policy"]
-        if include_joints:
-            state = np.concatenate([state, obs["joint_configuration"]])
+        if student_obs:
+            # anyskin_mag(2) + anyskin_slip(2) + gripper_state(1) + phase(3) [+ joints(6)] = 8 or 14-dim
+            parts = [obs["anyskin_mag"], obs["anyskin_slip"], obs["gripper_state"], obs["phase"]]
+            if include_joints:
+                parts.append(obs["joint_configuration"])
+            state = np.concatenate(parts).astype(np.float32)
+        else:
+            state = obs["observation.state_policy"]
+            if include_joints:
+                state = np.concatenate([state, obs["joint_configuration"]])
         return {
             "observation.state": torch.from_numpy(state).float().unsqueeze(0).to(device),
             "observation.environment_state": torch.from_numpy(obs["observation.environment_state"]).float().unsqueeze(0).to(device),
@@ -34,6 +41,8 @@ def main():
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--include-joints", action="store_true",
                         help="Concatenate joint_configuration into observation.state (use with joints-trained model)")
+    parser.add_argument("--student-obs", action="store_true",
+                        help="Use external-only student obs: anyskin_mag+slip+gripper_state+phase (no raspberry/loadcell)")
     parser.add_argument("--raspberry-contact-threshold", type=float, default=2000.0,
                         help="Max raspberry pressure to trigger pull, same as PID agent (default 2000)")
     args = parser.parse_args()
@@ -41,7 +50,7 @@ def main():
     device = args.device
     policy = make_lerobot_policy(args.checkpoint, args.dataset_root)
     policy = policy.to(device)
-    agent = LerobotAgent(policy, device, make_obs_preprocessor(device, include_joints=args.include_joints))
+    agent = LerobotAgent(policy, device, make_obs_preprocessor(device, include_joints=args.include_joints, student_obs=args.student_obs))
 
     feature_cfg = OnlineFeatureConfig(raspberry_contact_threshold=args.raspberry_contact_threshold)
     env = RaspberryPickEnv(trial_log_root=args.trial_log_dir, fps=args.fps, feature_cfg=feature_cfg,
@@ -59,6 +68,7 @@ def main():
                 cycle_end = time.time() + period
                 obs = env.get_observations()
                 action = agent.get_action(obs)
+                print(f"[dbg] phase={obs['phase']}  action={action[0]:.5f}  gripper={float(obs['gripper_state'][0]):.4f}m")
                 commanded_width = apply_delta_to_commanded(
                     commanded_width,
                     action,

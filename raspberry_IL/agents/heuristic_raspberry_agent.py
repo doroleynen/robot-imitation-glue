@@ -80,7 +80,7 @@ class HeuristicRaspberryAgent(BaseAgent):
         slip_close_step: float = -0.0002,
         max_close_per_step: float = -0.002,
         min_gripper_width: float = 0.025,
-        slip_cooldown_steps: int = 5,
+        slip_cooldown_steps: int = 0,
     ):
         self.close_delta_fast = close_delta_fast
         self.close_delta_slow = close_delta_slow

@@ -51,7 +51,7 @@ class RaspberryPickEnv(BaseEnv):
         robot_ip: str = "192.168.0.42",
         raspberry_port: str = "/dev/ttyACM2",
         loadcell_port: str = "/dev/ttyACM0",
-        anyskin_port: str = "/dev/ttyACM3",
+        anyskin_port: str = "/dev/ttyACM4",
         baud_rate: int = 115200,
         enable_anyskin: bool = True,
         anyskin_num_mags: int = 5,

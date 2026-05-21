@@ -85,7 +85,7 @@ def process_raspberry(sensors):
     return out
 
 
-def extract_peaks(trial_idx, files, aggregation="max"):
+def extract_peaks(trial_idx, files, aggregation="max", pressure_start=None):
     rasp_t, raw_sensors = read_raspberry_csv(files["rasp"])
     load_t, load_force = read_loadcell_csv(files["load"])
 
@@ -108,12 +108,19 @@ def extract_peaks(trial_idx, files, aggregation="max"):
     load_tare = float(force_interp_raw[:n_baseline].mean()) if n_baseline > 0 else float(force_interp_raw[0])
     force_interp = force_interp_raw - load_tare
 
-    # Find pull start: first sample where force exceeds FORCE_START_OFFSET above baseline
-    start_indices = np.where(force_interp >= FORCE_START_OFFSET)[0]
-    if start_indices.size == 0:
-        print(f"  trial {trial_idx:03d}: force never rose enough, skipping")
-        return None
-    start_i = start_indices[0]
+    if pressure_start is not None:
+        idx = np.where(pressure >= pressure_start)[0]
+        if idx.size == 0:
+            print(f"  trial {trial_idx:03d}: pressure never reached {pressure_start}Pa, skipping")
+            return None
+        start_i = idx[0]
+    else:
+        # Find pull start: first sample where force exceeds FORCE_START_OFFSET above baseline
+        start_indices = np.where(force_interp >= FORCE_START_OFFSET)[0]
+        if start_indices.size == 0:
+            print(f"  trial {trial_idx:03d}: force never rose enough, skipping")
+            return None
+        start_i = start_indices[0]
 
     force_start = float(force_interp[start_i])
     pressure_start = float(pressure[start_i])
@@ -139,6 +146,8 @@ def main():
     parser.add_argument("--aggregation", choices=["mean_active", "max"], default="max")
     parser.add_argument("--plot", action="store_true")
     parser.add_argument("--save-plot", default=None, metavar="PATH")
+    parser.add_argument("--pressure-start", type=float, default=None, metavar="PA",
+                        help="Use pressure threshold (Pa) to detect pull start instead of load cell")
     args = parser.parse_args()
 
     trials = discover_trials(args.log_dir)
@@ -151,7 +160,8 @@ def main():
     peak_forces, peak_pressures, trial_indices = [], [], []
 
     for idx in sorted(trials):
-        result = extract_peaks(idx, trials[idx], aggregation=args.aggregation)
+        result = extract_peaks(idx, trials[idx], aggregation=args.aggregation,
+                               pressure_start=args.pressure_start)
         if result is None:
             continue
         pf, pp = result

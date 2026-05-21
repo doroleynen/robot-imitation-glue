@@ -1,0 +1,7 @@
+t_pc,event,trial_idx,anyskin_contact_signal,load_force,max_slip,raspberry_pressure
+278053.795614737,safe_pose_reached,3,,,,
+278060.185550145,approach_reached,3,,,,
+278063.415751212,grasp_pose_reached,3,,,,
+278069.621053646,contact_detected,3,14.077785908149963,,,2727.5048828125
+278069.622339662,pull_start,3,,,,
+278073.48417415,detach_detected,3,,60.3096,8.911895751953125,
