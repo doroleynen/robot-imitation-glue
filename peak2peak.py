@@ -200,7 +200,6 @@ def main():
     fig, ax = plt.subplots(figsize=(7, 5))
 
     ax.scatter(peak_forces, peak_pressures, s=50, color="steelblue", zorder=3, label="trials")
-
     for idx, pf, pp in zip(trial_indices, peak_forces, peak_pressures):
         ax.annotate(str(idx), (pf, pp), textcoords="offset points", xytext=(4, 3), fontsize=7, color="steelblue")
 

@@ -275,6 +275,8 @@ def main():
 
         fig_s, ax_s = plt.subplots(figsize=(7, 5))
         ax_s.scatter(delta_forces, delta_pressures, s=50, color="steelblue", zorder=3, label="trials")
+        for idx, df, dp in zip(idxs, delta_forces, delta_pressures):
+            ax_s.annotate(str(idx), (df, dp), textcoords="offset points", xytext=(4, 3), fontsize=7, color="steelblue")
         x_line = np.linspace(0, delta_forces.max() * 1.1, 200)
         ax_s.plot(x_line, fit_slope * x_line, "k-", linewidth=2,
                   label=f"fit slope = {fit_slope:.2f} Pa/g")

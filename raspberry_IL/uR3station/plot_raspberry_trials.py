@@ -114,8 +114,12 @@ def process_anyskin_rows(rows, fieldnames):
     t = [row["t_pc"] for row in rows]
     mag_signals = {}
     slip_signals = {}
+    x_signals = {}
+    y_signals = {}
     for i in mags:
         raw_shear = []
+        xs = [row[f"m{i}_x"] for row in rows]
+        ys = [row[f"m{i}_y"] for row in rows]
         for row in rows:
             x = row[f"m{i}_x"]
             y = row[f"m{i}_y"]
@@ -127,7 +131,9 @@ def process_anyskin_rows(rows, fieldnames):
         slip = moving_average(slip, ANYSKIN_SLIP_SMOOTH_WINDOW)
         mag_signals[i] = shear
         slip_signals[i] = slip
-    return t, mags, mag_signals, slip_signals
+        x_signals[i] = moving_average(xs, ANYSKIN_SMOOTH_WINDOW)
+        y_signals[i] = moving_average(ys, ANYSKIN_SMOOTH_WINDOW)
+    return t, mags, mag_signals, slip_signals, x_signals, y_signals
 
 
 def draw_event_lines(ax, event_rows):
@@ -194,21 +200,29 @@ def plot_one_trial(trial_idx, files, output_dir):
         anyskin_fieldnames, anyskin_rows = read_anyskin_csv(files["anyskin"])
         if detach_t is not None:
             anyskin_rows = [r for r in anyskin_rows if r["t_pc"] <= detach_t]
-        t, mags, mag_signals, slip_signals = process_anyskin_rows(anyskin_rows, anyskin_fieldnames)
-        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 10), sharex=True)
+        t, mags, mag_signals, slip_signals, x_signals, y_signals = process_anyskin_rows(anyskin_rows, anyskin_fieldnames)
+        fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(14, 14), sharex=True)
         for i in mags:
             ax1.plot(t, mag_signals[i], label=f"m{i}_mag")
             ax2.plot(t, slip_signals[i], label=f"m{i}_slip")
+            ax3.plot(t, x_signals[i], label=f"m{i}_x")
+            ax3.plot(t, y_signals[i], label=f"m{i}_y", linestyle="--")
         ax2.axhline(8, color="crimson", linestyle="--", linewidth=1.8, alpha=0.8, label="slip threshold")
         if detach_t is not None:
             ax1.axvline(detach_t, linestyle=":", linewidth=2)
             ax2.axvline(detach_t, linestyle=":", linewidth=2)
+            ax3.axvline(detach_t, linestyle=":", linewidth=2)
         draw_event_lines(ax1, event_rows)
         draw_event_lines(ax2, event_rows)
+        draw_event_lines(ax3, event_rows)
         if t_plot_start is not None:
             ax1.set_xlim(left=t_plot_start, right=t_plot_end)
+        ax1.set_ylabel("Shear magnitude")
+        ax2.set_ylabel("Slip proxy")
+        ax3.set_ylabel("Shear components (x, y)")
         ax1.legend(loc="upper left")
         ax2.legend(loc="upper left")
+        ax3.legend(loc="upper left")
         fig.tight_layout()
         fig.savefig(os.path.join(output_dir, f"trial_{trial_idx:03d}_anyskin.png"), dpi=300, bbox_inches="tight")
         plt.close(fig)
