@@ -332,9 +332,9 @@ class OnlineFeatureConfig:
     zero_deadband: float = 8.0
     anyskin_smooth_window: int = 1
     anyskin_slip_threshold: float = 40.0  # raw step-to-step magnitude diff; noise floor max ~28, genuine slip up to ~174
-    detach_drop_threshold: float = 0.05
-    detach_min_force: float = 0.1
-    detach_count_required: int = 4
+    detach_drop_threshold: float = 50.0
+    detach_min_force: float = 50.0
+    detach_count_required: int = 2
         # Guard against division by zero in shear/normal ratio
     anyskin_ratio_epsilon: float = 1e-6
 
@@ -348,7 +348,7 @@ class OnlineFeatureConfig:
     # NOTE: these are called at control-loop rate (~10 Hz), not sensor rate
     anyskin_contact_z_window: int = 3      # running average window (~0.3s at 10Hz)
     anyskin_contact_base_samples: int = 15  # samples to establish magnitude baseline (~1.5s at 10Hz)
-    anyskin_contact_threshold: float = 15.0  # magnitude delta threshold; noise floor ~6 (3-sample smoothed), contact ~50-100+
+    anyskin_contact_threshold: float = 21.0  # magnitude delta threshold; noise floor ~6 (3-sample smoothed), contact ~50-100+
     raspberry_contact_threshold: float = 0.0  # if > 0, also trigger contact when max raspberry_state exceeds this
 
 

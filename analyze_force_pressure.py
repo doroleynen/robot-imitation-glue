@@ -133,11 +133,7 @@ def extract_pull_pairs(trial_idx, files, aggregation="mean_active", pressure_sta
     processed = process_raspberry(raw_sensors)
     pressure = aggregate_pressure(processed, method=aggregation)
 
-    # Tare using the first n_baseline samples (quiet resting state)
-    n_baseline = min(50, len(force_interp_raw) // 4)
-    baseline_force = float(force_interp_raw[:n_baseline].mean()) if n_baseline > 0 else float(force_interp_raw[0])
-    load_tare = baseline_force
-    force_interp = force_interp_raw - load_tare
+    force_interp = force_interp_raw  # CSVs are pre-tared; no internal offset needed
 
     if pressure_start is not None:
         # Heuristic mode: slope window starts when pressure first exceeds the threshold
@@ -148,7 +144,7 @@ def extract_pull_pairs(trial_idx, files, aggregation="mean_active", pressure_sta
         slope_start_i = idx[0]
     else:
         # Default: slope window starts when force crosses FORCE_START_OFFSET then SLOPE_FORCE_MIN
-        start_indices = np.where(force_interp_raw >= baseline_force + FORCE_START_OFFSET)[0]
+        start_indices = np.where(force_interp >= FORCE_START_OFFSET)[0]
         if start_indices.size == 0:
             print(f"  trial {trial_idx:03d}: force never rose enough, skipping")
             return np.array([]), np.array([]), np.array([]), np.array([])
@@ -275,8 +271,6 @@ def main():
 
         fig_s, ax_s = plt.subplots(figsize=(7, 5))
         ax_s.scatter(delta_forces, delta_pressures, s=50, color="steelblue", zorder=3, label="trials")
-        for idx, df, dp in zip(idxs, delta_forces, delta_pressures):
-            ax_s.annotate(str(idx), (df, dp), textcoords="offset points", xytext=(4, 3), fontsize=7, color="steelblue")
         x_line = np.linspace(0, delta_forces.max() * 1.1, 200)
         ax_s.plot(x_line, fit_slope * x_line, "k-", linewidth=2,
                   label=f"fit slope = {fit_slope:.2f} Pa/g")

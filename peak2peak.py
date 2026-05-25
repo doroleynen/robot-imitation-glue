@@ -103,10 +103,7 @@ def extract_peaks(trial_idx, files, aggregation="max", pressure_start=None):
             active = processed[:, j][processed[:, j] > 0]
             pressure[j] = active.mean() if active.size > 0 else 0.0
 
-    # Tare using first n_baseline interpolated samples (quiet resting state)
-    n_baseline = min(50, len(force_interp_raw) // 4)
-    load_tare = float(force_interp_raw[:n_baseline].mean()) if n_baseline > 0 else float(force_interp_raw[0])
-    force_interp = force_interp_raw - load_tare
+    force_interp = force_interp_raw  # CSVs are pre-tared; no internal offset needed
 
     if pressure_start is not None:
         idx = np.where(pressure >= pressure_start)[0]

@@ -15,8 +15,8 @@ NUM_SENSORS = 8
 WINDOW = 20
 BASE_SAMPLES = 100
 ZERO_DEADBAND = 8.0
-DETACH_DROP_THRESHOLD = 0.01
-DETACH_MIN_FORCE = 0.05
+DETACH_DROP_THRESHOLD = 30.0
+DETACH_MIN_FORCE = 20.0
 ANYSKIN_SMOOTH_WINDOW = 10
 ANYSKIN_SLIP_SMOOTH_WINDOW = 10
 ANYSKIN_SLIP_LOOKBACK = 500  # samples (~1s at 500Hz) for shear-change slip proxy
@@ -188,6 +188,10 @@ def plot_one_trial(trial_idx, files, output_dir):
     draw_event_lines(ax1, event_rows)
     if t_plot_start is not None:
         ax1.set_xlim(left=t_plot_start, right=t_plot_end)
+    y1_max = ax1.get_ylim()[1]
+    ax1.set_ylim(bottom=min(0, ax1.get_ylim()[0]), top=y1_max * 1.05)
+    y2_max = ax2.get_ylim()[1]
+    ax2.set_ylim(bottom=min(0, ax2.get_ylim()[0]), top=y2_max * 1.05)
     lines1, labels1 = ax1.get_legend_handles_labels()
     lines2, labels2 = ax2.get_legend_handles_labels()
     ax1.legend(lines1 + lines2, labels1 + labels2, loc="upper left")

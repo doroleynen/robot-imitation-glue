@@ -137,7 +137,7 @@ def main():
     parser.add_argument("--dataset-root", required=True)
     parser.add_argument("--dataset-name", default="raspberry_pick_pid")
     parser.add_argument("--device", default="cpu")
-    parser.add_argument("--max-episodes", type=int, default=10)
+    parser.add_argument("--max-episodes", type=int, default=6)
     parser.add_argument("--out-dir", default="prediction_checks",
                         help="Directory to save PNGs into")
     args = parser.parse_args()
